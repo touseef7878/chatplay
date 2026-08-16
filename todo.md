@@ -1,0 +1,28 @@
+# Project TODO
+
+- [x] Connect the application runtime to the selected Supabase project using publishable configuration only.
+- [x] Replace the legacy HS256 bridge assumption with an ES256/JWKS-compatible Supabase identity bridge and validate its configuration.
+- [x] Provision linked Supabase Auth sessions from verified Manus OAuth sessions using a server-only Supabase secret key, then verify issued ES256 access tokens through JWKS.
+- [x] Define and apply Supabase tables, indexes, realtime publication settings, storage bucket, and row-level access policies for ChatPlay.
+- [x] Add profile persistence that maps Manus OAuth users to ChatPlay display names and avatars.
+- [x] Create a mobile-first dark app shell with an accessible animated room-navigation sidebar.
+- [x] Implement public and private room browsing, creation, joining, and member management.
+- [x] Implement real-time room messaging with optimistic sends, persistent history, and online presence indicators.
+- [x] Implement browser voice recording, Supabase Storage upload, and inline playback.
+- [x] Implement live emoji reaction add/remove behavior and reaction counts.
+- [x] Implement real-time multiplayer Tic-Tac-Toe invitations, turn synchronization, and automatic chat results.
+- [x] Implement real-time multiplayer Word Scramble invitations, race synchronization, and automatic chat results.
+- [x] Implement real-time multiplayer Trivia invitations, simultaneous answers, leaderboard updates, and automatic chat results.
+- [x] Add an in-chat game launcher, invite cards, game panels, dark-theme motion polish, and responsive layouts.
+- [x] Write and run automated tests for core data utilities, game logic, and server operations.
+- [x] Verify the app visually at desktop and mobile breakpoints, resolve defects, and create a final checkpoint.
+- [x] Disable Supabase Realtime public channel access and verify the database-backed private-channel authorization setting.
+- [x] Validate that room and game channels use private subscriptions and reject unauthorized participants.
+- [x] Render persisted identicon avatars from avatar seeds and load the current user's profile independently of room membership.
+- [x] Add accessible labels and keyboard-safe controls across the app shell, then validate the authenticated workspace on mobile and desktop.
+- [x] Implement private-room invitations, member list management, and authorized private-room joining flows.
+- [x] Fix and verify the authenticated workspace bootstrap so the signed-in app reliably renders before final validation.
+- [x] Implement direct member-targeted invitations and visible invite cards for every ChatPlay game.
+- [x] Rework Trivia for simultaneous answers, multiple participants, and a live leaderboard before final result posting.
+- [x] Add an automated or documented validation proving unauthorized identities cannot subscribe to private room or game channels.
+- [x] Complete private-room acceptance and member-removal controls, then validate the authenticated workspace on mobile and desktop.
