@@ -11,8 +11,12 @@ export const users = mysqlTable("users", {
    * Use this for relations between tables.
    */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
+  /** Stable application identity used by both legacy Manus users and local accounts. */
+  openId: varchar("openId", { length: 128 }).notNull().unique(),
+  /** Lowercase unique username used for password-only authentication. */
+  username: varchar("username", { length: 32 }).unique(),
+  /** Supabase Auth user id for local password accounts. */
+  supabaseAuthId: varchar("supabaseAuthId", { length: 64 }).unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),

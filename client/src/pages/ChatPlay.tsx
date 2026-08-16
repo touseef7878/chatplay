@@ -1,21 +1,20 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { findTicTacToeWinner, GameKind, shuffledWord, TRIVIA_QUESTIONS } from "@/lib/game-utils";
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/contexts/ThemeContext";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, CirclePlus, Crown, Gamepad2, LogOut, Menu, Mic, Moon, Paperclip, Play, Send, Sparkles, Sun, Trophy, Users, X } from "lucide-react";
+import { Bell, Camera, Check, CirclePlus, Crown, Gamepad2, LogOut, Menu, Mic, Moon, Paperclip, Play, Send, Sparkles, Sun, Trophy, Upload, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type Room = { id: string; name: string; description: string; visibility: string; created_by: string; created_at: string };
-type Profile = { id: string; display_name: string; avatar_seed: string };
+type Profile = { id: string; display_name: string; avatar_seed: string; avatar_url?: string | null; membership_role?: "owner" | "admin" | "member" };
 type ChatMessage = { id: string; room_id: string; sender_id: string; kind: string; body: string | null; voice_path: string | null; duration_seconds: number | null; metadata: any; created_at: string; profiles?: Profile; message_reactions?: Array<{ emoji: string; user_id: string }> };
 type Game = { id: string; room_id: string; host_id: string; game_type: GameKind; status: string; state: any; winner_id: string | null };
 
@@ -43,6 +42,11 @@ export default function ChatPlay() {
   const [newRoom, setNewRoom] = useState({ name: "", description: "", visibility: "public" });
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [profileForm, setProfileForm] = useState({ displayName: "", avatarUrl: "" });
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [gameOpen, setGameOpen] = useState(false);
   const [opponentId, setOpponentId] = useState("");
   const [activeGame, setActiveGame] = useState<Game | null>(null);
@@ -55,10 +59,10 @@ export default function ChatPlay() {
   const didBootstrap = useRef(false);
 
   const activeRoom = rooms.find(room => room.id === roomId) ?? null;
-  const pending = bootstrapPending || !bridgeReady;
+  const pending = bootstrapPending || (isAuthenticated && user?.loginMethod === "password" && !bridgeReady);
 
   useEffect(() => {
-    if (!isAuthenticated || !user || bridgeReady || bootstrapPending || didBootstrap.current) return;
+    if (!isAuthenticated || !user || user.loginMethod !== "password" || bridgeReady || bootstrapPending || didBootstrap.current) return;
     didBootstrap.current = true;
     void (async () => {
       try {
@@ -88,26 +92,45 @@ export default function ChatPlay() {
     void (async () => {
       const auth = await supabase.auth.getUser();
       if (!auth.data.user) return;
-      const current = await supabase.from("profiles").select("id, display_name, avatar_seed").eq("id", auth.data.user.id).single();
-      if (!current.error && current.data) setProfile(current.data as Profile);
+      const current = await supabase.from("profiles").select("id, display_name, avatar_seed, avatar_url").eq("id", auth.data.user.id).single();
+      if (!current.error && current.data) {
+        const next = current.data as Profile;
+        setProfile(next);
+        setProfileForm({ displayName: next.display_name, avatarUrl: next.avatar_url ?? "" });
+      }
     })();
   }, [bridgeReady]);
+
+  const loadAlerts = async () => {
+    if (!profile) return;
+    const result = await supabase.from("notifications").select("*").eq("recipient_id", profile.id).order("created_at", { ascending: false }).limit(30);
+    if (!result.error) setAlerts(result.data ?? []);
+  };
+
+  useEffect(() => {
+    if (!bridgeReady || !profile) return;
+    void loadAlerts();
+    const channel = supabase.channel(`user:${profile.id}`, { config: { private: true } }).on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${profile.id}` }, () => { void loadAlerts(); }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [bridgeReady, profile?.id]);
 
   const loadRoom = async () => {
     if (!roomId) return;
     const [messageResult, memberResult, sessionResult] = await Promise.all([
       supabase.from("messages").select("*, profiles!messages_sender_id_fkey(id, display_name, avatar_seed), message_reactions(emoji, user_id)").eq("room_id", roomId).order("created_at", { ascending: true }).limit(120),
-      supabase.from("room_members").select("profiles!room_members_user_id_fkey(id, display_name, avatar_seed)").eq("room_id", roomId),
+      supabase.from("room_members").select("membership_role, profiles!room_members_user_id_fkey(id, display_name, avatar_seed, avatar_url)").eq("room_id", roomId),
       supabase.from("game_sessions").select("*").eq("room_id", roomId).in("status", ["pending", "active"]).order("created_at", { ascending: false }).limit(1),
     ]);
     if (messageResult.error) toast.error(messageResult.error.message); else setMessages((messageResult.data ?? []) as unknown as ChatMessage[]);
-    const roomProfiles = (memberResult.data ?? []).map((row: any) => row.profiles).filter(Boolean) as Profile[];
+    const roomProfiles = (memberResult.data ?? []).map((row: any) => row.profiles ? { ...row.profiles, membership_role: row.membership_role } : null).filter(Boolean) as Profile[];
     setMembers(roomProfiles);
-    const profileDirectory = await supabase.from("profiles").select("id, display_name, avatar_seed").order("display_name");
+    const profileDirectory = await supabase.from("profiles").select("id, display_name, avatar_seed, avatar_url").order("display_name");
     if (!profileDirectory.error) setDirectory((profileDirectory.data ?? []) as Profile[]);
     setActiveGame((sessionResult.data?.[0] ?? null) as Game | null);
     const auth = await supabase.auth.getUser();
-    setProfile(roomProfiles.find(member => member.id === auth.data.user?.id) ?? null);
+    const currentProfile = roomProfiles.find(member => member.id === auth.data.user?.id) ?? null;
+    if (currentProfile) { setProfile(currentProfile); setProfileForm({ displayName: currentProfile.display_name, avatarUrl: currentProfile.avatar_url ?? "" }); }
+
   };
 
   useEffect(() => {
@@ -129,9 +152,9 @@ export default function ChatPlay() {
 
   const createRoom = async () => {
     if (!profile || newRoom.name.trim().length < 2) return toast.error("Give the room a name with at least 2 characters");
-    const { data, error } = await supabase.from("rooms").insert({ name: newRoom.name.trim(), description: newRoom.description.trim(), visibility: newRoom.visibility, created_by: profile.id }).select().single();
+    const { data, error } = await supabase.rpc("create_room", { p_name: newRoom.name.trim(), p_description: newRoom.description.trim(), p_visibility: newRoom.visibility });
     if (error) return toast.error(error.message);
-    setNewRoomOpen(false); setNewRoom({ name: "", description: "", visibility: "public" }); await loadRooms(); setRoomId(data.id); toast.success("Room created");
+    setNewRoomOpen(false); setNewRoom({ name: "", description: "", visibility: "public" }); await loadRooms(); setRoomId(data as string); toast.success("Room created");
   };
 
   const joinRoom = async (room: Room) => {
@@ -142,19 +165,48 @@ export default function ChatPlay() {
   };
 
   const addMember = async (member: Profile) => {
-    if (!roomId) return;
+    if (!roomId || !profile) return;
     const result = await supabase.from("room_members").insert({ room_id: roomId, user_id: member.id });
     if (result.error) return toast.error(result.error.message);
+    await supabase.from("notifications").insert({ recipient_id: member.id, actor_id: profile.id, room_id: roomId, kind: "room_invite", title: `Invitation to ${activeRoom?.name ?? "a room"}`, body: `${profile.display_name} invited you to join ${activeRoom?.name ?? "a room"}.`, metadata: { room_id: roomId } });
     toast.success(`${member.display_name} was invited to ${activeRoom?.name}`);
     void loadRoom();
   };
 
+  const saveProfile = async () => {
+    if (!profile || !profileForm.displayName.trim()) return toast.error("Add a display name first");
+    let avatarUrl = profileForm.avatarUrl || null;
+    if (avatarFile) {
+      const extension = avatarFile.type.split("/")[1] || "png";
+      const upload = await supabase.storage.from("avatars").upload(`${profile.id}/${crypto.randomUUID()}.${extension}`, avatarFile, { contentType: avatarFile.type, upsert: false });
+      if (upload.error) return toast.error(upload.error.message);
+      avatarUrl = supabase.storage.from("avatars").getPublicUrl(upload.data.path).data.publicUrl;
+    }
+    const result = await supabase.from("profiles").update({ display_name: profileForm.displayName.trim(), avatar_url: avatarUrl }).eq("id", profile.id).select("id, display_name, avatar_seed, avatar_url").single();
+    if (result.error) return toast.error(result.error.message);
+    setProfile(result.data as Profile); setProfileForm({ displayName: result.data.display_name, avatarUrl: result.data.avatar_url ?? "" }); setAvatarFile(null); setProfileOpen(false); toast.success("Profile saved");
+  };
+
+  const markAlertRead = async (alertId: string) => {
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", alertId);
+    setAlerts(current => current.map(alert => alert.id === alertId ? { ...alert, read_at: new Date().toISOString() } : alert));
+  };
+
+  const setMemberRole = async (member: Profile, role: "admin" | "member") => {
+    if (!roomId || profile?.membership_role !== "owner") return;
+    const result = await supabase.from("room_members").update({ membership_role: role }).eq("room_id", roomId).eq("user_id", member.id);
+    if (result.error) return toast.error(result.error.message);
+    await supabase.from("notifications").insert({ recipient_id: member.id, actor_id: profile.id, room_id: roomId, kind: "moderation", title: role === "admin" ? "You are now a room admin" : "Room admin role removed", body: `Your role in ${activeRoom?.name ?? "the room"} is now ${role}.`, metadata: { role } });
+    toast.success(`${member.display_name} is now a ${role}`); void loadRoom();
+  };
+
   const removeMember = async (member: Profile) => {
-    if (!roomId || member.id === profile?.id) return;
+    if (!roomId || !profile || member.id === profile.id || !["owner", "admin"].includes(profile.membership_role ?? "")) return;
+    const actor = profile;
     const result = await supabase.from("room_members").delete().eq("room_id", roomId).eq("user_id", member.id);
     if (result.error) return toast.error(result.error.message);
-    toast.success(`${member.display_name} was removed from ${activeRoom?.name}`);
-    void loadRoom();
+    await supabase.from("notifications").insert({ recipient_id: member.id, actor_id: actor.id, room_id: roomId, kind: "moderation", title: "Removed from room", body: `You were removed from ${activeRoom?.name ?? "a room"}.`, metadata: { action: "kick" } });
+    toast.success(`${member.display_name} was removed from ${activeRoom?.name}`); void loadRoom();
   };
 
   const sendText = async () => {
@@ -206,7 +258,10 @@ export default function ChatPlay() {
     const players = await supabase.from("game_players").insert({ game_session_id: session.data.id, user_id: profile.id, invite_status: "accepted" });
     if (players.error) return toast.error(players.error.message);
     const invitee = members.find(member => member.id === opponentId);
-    if (invitee) await supabase.from("game_players").insert({ game_session_id: session.data.id, user_id: invitee.id, invite_status: "pending" });
+    if (invitee) {
+      await supabase.from("game_players").insert({ game_session_id: session.data.id, user_id: invitee.id, invite_status: "pending" });
+      await supabase.from("notifications").insert({ recipient_id: invitee.id, actor_id: profile.id, room_id: roomId, game_session_id: session.data.id, kind: "game_invite", title: `${gameType.replaceAll("_", " ")} invitation`, body: `${profile.display_name} invited you to play in ${activeRoom?.name ?? "a room"}.`, metadata: { game_id: session.data.id, game_type: gameType } });
+    }
     await supabase.from("messages").insert({ room_id: roomId, sender_id: profile.id, kind: "game_invite", body: invitee ? `${profile.display_name} invited ${invitee.display_name} to ${gameType.replaceAll("_", " ")}.` : `${profile.display_name} started ${gameType.replaceAll("_", " ")}. Join the game panel!`, metadata: { game_id: session.data.id, game_type: gameType, invitee_id: invitee?.id ?? null } });
     setActiveGame(session.data as Game); setGameOpen(false); toast.success("Game started — invitees can join from this room");
   };
@@ -262,7 +317,7 @@ export default function ChatPlay() {
   const signedAudio = (path: string) => supabase.storage.from("voice-messages").createSignedUrl(path, 3600).then(result => result.data?.signedUrl ?? "");
 
   if (loading || (isAuthenticated && pending)) return <div className="grid min-h-screen place-items-center bg-[#0d1117] text-slate-300"><Sparkles className="size-7 animate-pulse text-teal-300" /></div>;
-  if (!isAuthenticated) return <Landing onLogin={startLogin} />;
+  if (!isAuthenticated || user?.loginMethod !== "password") return <Landing />;
 
   return <div className="min-h-screen bg-[#0d1117] text-slate-100 selection:bg-teal-300/25">
     <div className="mx-auto flex min-h-screen max-w-[1700px] overflow-hidden lg:p-4">
@@ -271,11 +326,11 @@ export default function ChatPlay() {
         <Button onClick={() => setNewRoomOpen(true)} className="mb-5 h-11 rounded-xl bg-teal-300 font-semibold text-[#082426] hover:bg-teal-200"><CirclePlus className="mr-2 size-4" />Create a room</Button>
         <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Your rooms</p>
         <ScrollArea className="flex-1"><div className="space-y-1 pr-2">{rooms.map(room => <button key={room.id} onClick={() => { void joinRoom(room); }} className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition ${room.id === roomId ? "bg-teal-300/10 text-teal-100" : "text-slate-400 hover:bg-white/[0.045] hover:text-slate-100"}`}><div className="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 text-xs font-bold">{initials(room.name)}</div><div className="min-w-0 flex-1"><div className="flex justify-between gap-2"><p className="truncate text-sm font-medium">{room.name}</p>{room.visibility === "private" && <span className="text-[10px] text-slate-500">PRIVATE</span>}</div><p className="truncate text-xs text-slate-500">{room.description || "Tap to join the conversation"}</p></div></button>)}</div></ScrollArea>
-        <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white/[0.035] p-3"><Avatar className="size-9"><AvatarFallback style={{ background: identicon(profile?.avatar_seed ?? user?.openId ?? "guest") }} className="text-xs font-bold text-white">{initials(profile?.display_name ?? user?.name ?? "U")}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{profile?.display_name ?? user?.name}</p><p className="text-xs text-emerald-300"><span className="mr-1 inline-block size-1.5 rounded-full bg-emerald-300" />online</p></div><button aria-label="Log out" onClick={() => void logout()} className="text-slate-500 hover:text-slate-200"><LogOut className="size-4" /></button></div>
+        <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white/[0.035] p-3"><button aria-label="Edit profile" onClick={() => setProfileOpen(true)} className="shrink-0"><Avatar className="size-9"><AvatarImage src={profile?.avatar_url ?? undefined} alt="" /><AvatarFallback style={{ background: identicon(profile?.avatar_seed ?? user?.openId ?? "guest") }} className="text-xs font-bold text-white">{initials(profile?.display_name ?? user?.name ?? "U")}</AvatarFallback></Avatar></button><button onClick={() => setProfileOpen(true)} className="min-w-0 flex-1 text-left"><p className="truncate text-sm font-medium">{profile?.display_name ?? user?.name}</p><p className="text-xs text-emerald-300"><span className="mr-1 inline-block size-1.5 rounded-full bg-emerald-300" />{profile?.membership_role === "owner" ? "room owner" : "online"}</p></button><button aria-label="Log out" onClick={() => void logout()} className="text-slate-500 hover:text-slate-200"><LogOut className="size-4" /></button></div>
       </aside>
       {sidebarOpen && <button aria-label="Close room navigation" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-30 bg-black/55 lg:hidden" />}
       <main className="flex min-w-0 flex-1 flex-col lg:ml-4 lg:overflow-hidden lg:rounded-[28px] lg:border lg:border-white/5 lg:bg-[#121922]">
-        <header className="flex h-[76px] shrink-0 items-center justify-between border-b border-white/5 px-4 sm:px-6"><div className="flex min-w-0 items-center gap-3"><button aria-label="Open room navigation" onClick={() => setSidebarOpen(true)} className="lg:hidden"><Menu className="size-5" /></button><div className="grid size-10 place-items-center rounded-2xl bg-slate-800 text-sm font-bold">{activeRoom ? initials(activeRoom.name) : "CP"}</div><div className="min-w-0"><h1 className="truncate font-semibold">{activeRoom?.name ?? "Choose a room"}</h1><p className="truncate text-xs text-slate-500">{online.length || members.length} people around</p></div></div><div className="flex items-center gap-2"><button aria-label="Manage room members" onClick={() => setMembersOpen(true)} disabled={!activeRoom} className="grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200"><Users className="size-4" /></button><button aria-label="Toggle color theme" onClick={toggleTheme} className="grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200">{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</button><Button onClick={() => setGameOpen(true)} disabled={!activeRoom} className="rounded-xl bg-teal-300 px-3 text-[#082426] hover:bg-teal-200"><Gamepad2 className="mr-2 size-4" /><span className="hidden sm:inline">Play</span></Button></div></header>
+        <header className="flex h-[76px] shrink-0 items-center justify-between border-b border-white/5 px-4 sm:px-6"><div className="flex min-w-0 items-center gap-3"><button aria-label="Open room navigation" onClick={() => setSidebarOpen(true)} className="lg:hidden"><Menu className="size-5" /></button><div className="grid size-10 place-items-center rounded-2xl bg-slate-800 text-sm font-bold">{activeRoom ? initials(activeRoom.name) : "CP"}</div><div className="min-w-0"><h1 className="truncate font-semibold">{activeRoom?.name ?? "Choose a room"}</h1><p className="truncate text-xs text-slate-500">{online.length || members.length} people around</p></div></div><div className="flex items-center gap-2"><button aria-label="Open invitations and alerts" onClick={() => setAlertsOpen(value => !value)} className="relative grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200"><Bell className="size-4" />{alerts.some(alert => !alert.read_at) && <span className="absolute right-1 top-1 size-2 rounded-full bg-rose-300" />}</button><button aria-label="Manage room members" onClick={() => setMembersOpen(true)} disabled={!activeRoom} className="grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200"><Users className="size-4" /></button><button aria-label="Toggle color theme" onClick={toggleTheme} className="grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200">{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</button><Button onClick={() => setGameOpen(true)} disabled={!activeRoom} className="rounded-xl bg-teal-300 px-3 text-[#082426] hover:bg-teal-200"><Gamepad2 className="mr-2 size-4" /><span className="hidden sm:inline">Play</span></Button></div></header>
         {activeRoom ? <div className="relative flex min-h-0 flex-1 flex-col"><ScrollArea className="flex-1"><div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-7">{messages.map(message => <MessageBubble key={message.id} message={message} mine={message.sender_id === profile?.id} onReact={react} reactionCount={reactionsFor} onJoinGame={joinGame} audioUrl={message.voice_path ? signedAudio(message.voice_path) : undefined} />)}<div ref={bottomRef} /></div></ScrollArea>
           {activeGame && <GamePanel game={activeGame} profile={profile} members={members} answer={gameAnswer} setAnswer={setGameAnswer} onJoin={joinGame} onTic={playTic} onAnswer={answerGame} onFinishTrivia={finishTrivia} />}
           <div className="border-t border-white/5 bg-[#101720]/85 p-3 backdrop-blur sm:p-4"><div className="mx-auto flex max-w-4xl items-end gap-2"><button aria-label="Attachment options" className="hidden size-10 place-items-center rounded-xl text-slate-500 hover:bg-white/5 sm:grid"><Paperclip className="size-4" /></button><Textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendText(); } }} placeholder={`Message #${activeRoom.name}`} className="min-h-11 max-h-28 resize-none rounded-2xl border-white/5 bg-white/[0.04] px-4 py-3 text-sm placeholder:text-slate-600 focus-visible:ring-teal-300/50" rows={1} /><Button aria-label={recording ? "Finish and send voice message" : "Record voice message"} onClick={toggleRecord} className={`grid size-11 shrink-0 place-items-center rounded-2xl ${recording ? "bg-rose-400 text-white hover:bg-rose-300" : "bg-white/[0.05] text-slate-400 hover:bg-white/10"}`}><Mic className={`size-4 ${recording ? "animate-pulse" : ""}`} /></Button><Button aria-label="Send message" onClick={() => void sendText()} className="grid size-11 shrink-0 place-items-center rounded-2xl bg-teal-300 text-[#082426] hover:bg-teal-200"><Send className="size-4" /></Button></div></div>
@@ -284,7 +339,9 @@ export default function ChatPlay() {
     </div>
     <AnimatePresence>{newRoomOpen && <Modal title="Make a new room" onClose={() => setNewRoomOpen(false)}><div className="space-y-4"><Input value={newRoom.name} onChange={event => setNewRoom({ ...newRoom, name: event.target.value })} placeholder="Room name" className="border-white/10 bg-white/5" /><Textarea value={newRoom.description} onChange={event => setNewRoom({ ...newRoom, description: event.target.value })} placeholder="What will people talk and play about?" className="border-white/10 bg-white/5" /><div className="grid grid-cols-2 gap-2">{["public", "private"].map(visibility => <button key={visibility} onClick={() => setNewRoom({ ...newRoom, visibility })} className={`rounded-xl border p-3 text-left capitalize ${newRoom.visibility === visibility ? "border-teal-300/60 bg-teal-300/10 text-teal-100" : "border-white/10 text-slate-400"}`}><p className="text-sm font-semibold">{visibility}</p><p className="mt-1 text-xs opacity-70">{visibility === "public" ? "Anyone can discover and join" : "Only members can see it"}</p></button>)}</div><Button onClick={() => void createRoom()} className="w-full bg-teal-300 text-[#082426] hover:bg-teal-200">Create room</Button></div></Modal>}</AnimatePresence>
     <AnimatePresence>{gameOpen && <Modal title="Start a game" onClose={() => setGameOpen(false)}><div className="space-y-3"><select aria-label="Choose a room member to invite" value={opponentId} onChange={event => setOpponentId(event.target.value)} className="h-10 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-slate-100"><option value="">Open invitation to the room</option>{members.filter(member => member.id !== profile?.id).map(member => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select><GameChoice icon="⊹" title="Tic-Tac-Toe" text="Challenge a selected room member turn by turn." onClick={() => void createGame("tic_tac_toe")} /><div className="rounded-2xl border border-white/10 p-4"><div className="flex items-start justify-between"><div><p className="font-semibold">Word Scramble</p><p className="mt-1 text-xs text-slate-400">Choose the word. Everyone races to solve it.</p></div><span className="text-xl">⌘</span></div><Input value={gameWord} onChange={event => setGameWord(event.target.value)} className="mt-3 border-white/10 bg-white/5" placeholder="Secret word" /><Button onClick={() => void createGame("word_scramble")} className="mt-3 w-full bg-white/10 hover:bg-white/15">Start scramble</Button></div><GameChoice icon="?" title="Trivia Sprint" text="Launch a multiple-choice question with a live leaderboard." onClick={() => void createGame("trivia")} /></div></Modal>}</AnimatePresence>
-    <AnimatePresence>{membersOpen && <Modal title={`${activeRoom?.name ?? "Room"} members`} onClose={() => setMembersOpen(false)}><div className="space-y-3"><p className="text-xs text-slate-400">{activeRoom?.visibility === "private" ? "Private rooms can only be joined by members invited here." : "Anyone can join this public room."}</p><div className="max-h-44 space-y-2 overflow-auto">{members.map(member => <div key={member.id} className="flex items-center gap-3 rounded-xl bg-white/[0.045] p-2.5"><Avatar className="size-8"><AvatarFallback style={{ background: identicon(member.avatar_seed) }} className="text-[10px] text-white">{initials(member.display_name)}</AvatarFallback></Avatar><span className="text-sm">{member.display_name}</span>{member.id === activeRoom?.created_by && <Crown className="ml-auto size-3.5 text-amber-300" />}{activeRoom?.visibility === "private" && profile?.id === activeRoom.created_by && member.id !== profile.id && <button aria-label={`Remove ${member.display_name}`} onClick={() => void removeMember(member)} className="ml-auto text-xs text-rose-300 hover:text-rose-200">Remove</button>}</div>)}</div>{activeRoom?.visibility === "private" && profile?.id === activeRoom.created_by && <><p className="pt-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Invite to this room</p><div className="max-h-44 space-y-2 overflow-auto">{directory.filter(candidate => !members.some(member => member.id === candidate.id)).map(candidate => <button key={candidate.id} onClick={() => void addMember(candidate)} className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left hover:bg-white/[0.05]"><Avatar className="size-8"><AvatarFallback style={{ background: identicon(candidate.avatar_seed) }} className="text-[10px] text-white">{initials(candidate.display_name)}</AvatarFallback></Avatar><span className="text-sm">{candidate.display_name}</span><CirclePlus className="ml-auto size-4 text-teal-200" /></button>)}</div></>}</div></Modal>}</AnimatePresence>
+    <AnimatePresence>{profileOpen && <Modal title="Edit your profile" onClose={() => setProfileOpen(false)}><div className="space-y-4"><div className="flex items-center gap-4"><Avatar className="size-16"><AvatarImage src={profileForm.avatarUrl || undefined} alt="" /><AvatarFallback style={{ background: identicon(profile?.avatar_seed ?? "profile") }} className="text-lg font-bold text-white">{initials(profileForm.displayName || "U")}</AvatarFallback></Avatar><label className="cursor-pointer rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/5"><Upload className="mr-2 inline size-3.5" />Upload avatar<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={event => setAvatarFile(event.target.files?.[0] ?? null)} /></label></div><div><label className="mb-1.5 block text-xs font-medium text-slate-400">Display name</label><Input value={profileForm.displayName} onChange={event => setProfileForm({ ...profileForm, displayName: event.target.value })} maxLength={48} className="border-white/10 bg-white/5" /></div><p className="text-xs text-slate-500">Your unique username is used to sign in and cannot be changed here.</p><Button onClick={() => void saveProfile()} className="w-full bg-teal-300 text-[#082426] hover:bg-teal-200">Save profile</Button></div></Modal>}</AnimatePresence>
+    <AnimatePresence>{alertsOpen && <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="fixed right-4 top-20 z-40 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[#141d27] p-3 shadow-2xl"><div className="mb-2 flex items-center justify-between"><p className="text-sm font-semibold">Invitations & alerts</p><button aria-label="Close alerts" onClick={() => setAlertsOpen(false)}><X className="size-4 text-slate-500" /></button></div><div className="max-h-80 space-y-2 overflow-auto">{alerts.length ? alerts.map(alert => <button key={alert.id} onClick={() => { void markAlertRead(alert.id); if (alert.room_id) setRoomId(alert.room_id); setAlertsOpen(false); }} className={`w-full rounded-xl p-3 text-left transition hover:bg-white/10 ${alert.read_at ? "bg-white/[0.03]" : "bg-teal-300/10"}`}><div className="flex items-start gap-2"><Bell className="mt-0.5 size-4 shrink-0 text-teal-200" /><div><p className="text-sm font-medium">{alert.title}</p><p className="mt-1 text-xs text-slate-400">{alert.body}</p><p className="mt-2 text-[10px] text-slate-500">{time(alert.created_at)}{!alert.read_at && <span className="ml-2 text-teal-200">New</span>}</p></div></div></button>) : <p className="px-2 py-6 text-center text-sm text-slate-500">No new invitations yet.</p>}</div></motion.div>}</AnimatePresence>
+    <AnimatePresence>{membersOpen && <Modal title={`${activeRoom?.name ?? "Room"} members`} onClose={() => setMembersOpen(false)}><div className="space-y-3"><p className="text-xs text-slate-400">{activeRoom?.visibility === "private" ? "Private rooms can only be joined by members invited here." : "Anyone can join this public room."}</p><div className="max-h-52 space-y-2 overflow-auto">{members.map(member => <div key={member.id} className="flex items-center gap-3 rounded-xl bg-white/[0.045] p-2.5"><Avatar className="size-8"><AvatarImage src={member.avatar_url ?? undefined} alt="" /><AvatarFallback style={{ background: identicon(member.avatar_seed) }} className="text-[10px] text-white">{initials(member.display_name)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm">{member.display_name}</p><p className="text-[10px] uppercase tracking-wide text-slate-500">{member.membership_role ?? "member"}</p></div>{member.membership_role === "owner" && <Crown className="size-3.5 text-amber-300" />}{profile?.membership_role === "owner" && member.id !== profile.id && member.membership_role !== "owner" && <div className="flex gap-1"><button onClick={() => void setMemberRole(member, member.membership_role === "admin" ? "member" : "admin")} className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-teal-200">{member.membership_role === "admin" ? "Demote" : "Make admin"}</button></div>}{["owner", "admin"].includes(profile?.membership_role ?? "") && member.id !== profile?.id && member.membership_role !== "owner" && <button aria-label={`Kick ${member.display_name}`} onClick={() => void removeMember(member)} className="rounded-md bg-rose-300/10 px-2 py-1 text-[10px] text-rose-300 hover:bg-rose-300/20">Kick</button>}</div>)}</div>{activeRoom?.visibility === "private" && profile?.id === activeRoom.created_by && <><p className="pt-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Invite to this room</p><div className="max-h-44 space-y-2 overflow-auto">{directory.filter(candidate => !members.some(member => member.id === candidate.id)).map(candidate => <button key={candidate.id} onClick={() => void addMember(candidate)} className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left hover:bg-white/[0.05]"><Avatar className="size-8"><AvatarImage src={candidate.avatar_url ?? undefined} alt="" /><AvatarFallback style={{ background: identicon(candidate.avatar_seed) }} className="text-[10px] text-white">{initials(candidate.display_name)}</AvatarFallback></Avatar><span className="text-sm">{candidate.display_name}</span><CirclePlus className="ml-auto size-4 text-teal-200" /></button>)}</div></>}</div></Modal>}</AnimatePresence>
   </div>;
 }
 
@@ -301,4 +358,21 @@ function GamePanel({ game, profile, members, answer, setAnswer, onJoin, onTic, o
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) { return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm"><motion.div role="dialog" aria-modal="true" aria-label={title} initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 18, scale: .98 }} transition={spring} className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141d27] p-5 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="font-semibold">{title}</h2><button aria-label="Close dialog" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-white/5"><X className="size-4" /></button></div>{children}</motion.div></motion.div>; }
 function GameChoice({ icon, title, text, onClick }: { icon: string; title: string; text: string; onClick: () => void }) { return <button onClick={onClick} className="flex w-full items-center gap-4 rounded-2xl border border-white/10 p-4 text-left transition hover:border-teal-300/40 hover:bg-teal-300/5"><div className="grid size-10 place-items-center rounded-xl bg-teal-300/10 font-bold text-teal-200">{icon}</div><div><p className="font-semibold">{title}</p><p className="mt-1 text-xs text-slate-400">{text}</p></div></button>; }
 function EmptyRooms({ onCreate }: { onCreate: () => void }) { return <div className="grid flex-1 place-items-center p-8 text-center"><div><div className="mx-auto grid size-16 place-items-center rounded-3xl bg-teal-300/10 text-teal-200"><Users className="size-7" /></div><h2 className="mt-5 text-xl font-semibold">Start the first room</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-400">Create a public hangout or a private space for your closest players. Messaging, voice, and games will live together.</p><Button onClick={onCreate} className="mt-5 rounded-xl bg-teal-300 text-[#082426] hover:bg-teal-200">Create a room</Button></div></div>; }
-function Landing({ onLogin }: { onLogin: () => void }) { return <main className="min-h-screen overflow-hidden bg-[#0d1117] text-slate-100"><div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-between px-6 py-8"><nav className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-2xl bg-teal-300 text-[#082426]"><Gamepad2 className="size-5" /></div><span className="font-semibold">ChatPlay</span></div><Button onClick={onLogin} className="rounded-xl bg-white/10 hover:bg-white/15">Sign in</Button></nav><section className="grid items-center gap-12 py-16 lg:grid-cols-[1.1fr_.9fr]"><div><p className="text-sm font-semibold uppercase tracking-[.2em] text-teal-200">Real-time rooms, real play</p><h1 className="mt-5 max-w-2xl text-5xl font-semibold leading-[.98] tracking-tight sm:text-6xl">Your group chat just got a game night.</h1><p className="mt-6 max-w-xl text-base leading-7 text-slate-400">A social space for instant rooms, voice notes, reactions, and multiplayer games that finish right where the conversation started.</p><Button onClick={onLogin} className="mt-8 h-12 rounded-2xl bg-teal-300 px-6 font-semibold text-[#082426] hover:bg-teal-200">Enter ChatPlay <Play className="ml-2 size-4" /></Button></div><div className="relative mx-auto w-full max-w-md rounded-[32px] border border-white/10 bg-[#141d27] p-5 shadow-[0_28px_100px_rgba(0,0,0,.42)]"><div className="flex items-center gap-3 border-b border-white/5 pb-4"><div className="size-10 rounded-2xl bg-gradient-to-br from-teal-300 to-cyan-500" /><div><p className="font-semibold">Sunday Squad</p><p className="text-xs text-emerald-300">6 players online</p></div></div><div className="space-y-3 py-6"><div className="w-3/4 rounded-2xl rounded-bl-md bg-white/[.07] p-3 text-sm text-slate-300">Trivia Sprint in 3… 2… 1…</div><div className="ml-auto w-2/3 rounded-2xl rounded-br-md bg-teal-300 p-3 text-sm text-[#082426]">I’m ready. Let’s go!</div><div className="rounded-2xl border border-teal-300/25 bg-teal-300/10 p-4"><p className="flex items-center gap-2 text-sm font-semibold text-teal-100"><Trophy className="size-4" />Live leaderboard</p><div className="mt-3 h-2 rounded-full bg-white/10"><div className="h-full w-3/4 rounded-full bg-teal-300" /></div></div></div><p className="text-center text-xs text-slate-500">Fast chat. Friendly competition. One room.</p></div></section></div></main>; }
+function Landing() {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const login = trpc.auth.login.useMutation();
+  const register = trpc.auth.register.useMutation();
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (mode === "login") {
+      login.mutate({ username, password }, { onSuccess: () => window.location.reload(), onError: error => toast.error(error.message) });
+    } else {
+      register.mutate({ username, password, displayName }, { onSuccess: () => window.location.reload(), onError: error => toast.error(error.message) });
+    }
+  };
+
+  return <main className="min-h-screen overflow-hidden bg-[#0d1117] text-slate-100"><div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-between px-6 py-8"><nav className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-2xl bg-teal-300 text-[#082426]"><Gamepad2 className="size-5" /></div><span className="font-semibold">ChatPlay</span></div></nav><section className="grid items-center gap-12 py-16 lg:grid-cols-[1.1fr_.9fr]"><div><p className="text-sm font-semibold uppercase tracking-[.2em] text-teal-200">Real-time rooms, real play</p><h1 className="mt-5 max-w-2xl text-5xl font-semibold leading-[.98] tracking-tight sm:text-6xl">Your group chat just got a game night.</h1><p className="mt-6 max-w-xl text-base leading-7 text-slate-400">A social space for instant rooms, voice notes, reactions, and multiplayer games that finish right where the conversation started.</p></div><div className="relative mx-auto w-full max-w-md rounded-[32px] border border-white/10 bg-[#141d27] p-6 shadow-[0_28px_100px_rgba(0,0,0,.42)]"><form onSubmit={submit} className="space-y-4"><div className="flex gap-4 border-b border-white/5 pb-4"><button type="button" onClick={() => setMode("login")} className={`pb-2 text-sm font-semibold transition ${mode === "login" ? "border-b-2 border-teal-300 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>Sign in</button><button type="button" onClick={() => setMode("register")} className={`pb-2 text-sm font-semibold transition ${mode === "register" ? "border-b-2 border-teal-300 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>Create account</button></div>{mode === "register" && <div><label className="mb-1.5 block text-xs font-medium text-slate-400">Display name</label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} required minLength={1} maxLength={48} className="border-white/10 bg-white/5" placeholder="How others see you" /></div>}<div><label className="mb-1.5 block text-xs font-medium text-slate-400">Username</label><Input value={username} onChange={e => setUsername(e.target.value)} required minLength={3} maxLength={24} pattern="[a-zA-Z0-9_]+" className="border-white/10 bg-white/5" placeholder="Unique handle" /></div><div><label className="mb-1.5 block text-xs font-medium text-slate-400">Password</label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === "register" ? 8 : 1} className="border-white/10 bg-white/5" placeholder="••••••••" /></div><Button type="submit" disabled={login.isPending || register.isPending} className="mt-2 w-full rounded-xl bg-teal-300 font-semibold text-[#082426] hover:bg-teal-200">{mode === "login" ? "Enter ChatPlay" : "Create account"}</Button></form></div></section></div></main>; }

@@ -1,0 +1,4 @@
+{
+  "project_id": "ixyjuofwrvizydshqudm",
+  "query": "select id, display_name, avatar_url from public.profiles order by created_at desc limit 5;"
+}

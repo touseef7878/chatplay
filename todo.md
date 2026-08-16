@@ -26,3 +26,34 @@
 - [x] Rework Trivia for simultaneous answers, multiple participants, and a live leaderboard before final result posting.
 - [x] Add an automated or documented validation proving unauthorized identities cannot subscribe to private room or game channels.
 - [x] Complete private-room acceptance and member-removal controls, then validate the authenticated workspace on mobile and desktop.
+
+- [x] Replace visible Manus/Google OAuth entry with username-password registration and sign-in only.
+- [x] Persist unique usernames and password-authenticated sessions securely through Supabase Auth and the app session.
+- [x] Add editable display name and avatar upload UI with database metadata and storage persistence.
+- [x] Add persistent in-app invitation alerts for room and game invitations.
+- [x] Add browser push-notification subscription and delivery flow for room and game invitations. (Deferred by user; in-app alerts are implemented.)
+- [x] Add room admin role assignment, member kicking, and protected moderation policies.
+- [x] Verify all new flows with automated tests and end-to-end database persistence checks.
+- [x] Capture final desktop/mobile validation and save a final checkpoint.
+- [x] Document browser push delivery as deferred until VAPID credentials are supplied.
+
+# Extension TODO
+
+- [x] Replace visible Manus/Google OAuth entry with username-password registration and sign-in only.
+- [x] Persist unique usernames and password-authenticated sessions securely through Supabase Auth and the app session.
+- [x] Add editable display name and avatar upload UI with database metadata and storage persistence.
+- [x] Add persistent in-app invitation alerts for room and game invitations.
+- [x] Add browser push-notification subscription and delivery flow for room and game invitations. (Deferred by user; in-app alerts are implemented.)
+- [x] Add room admin role assignment, member kicking, and protected moderation policies.
+- [x] Verify all new flows with automated tests and end-to-end database persistence checks.
+- [x] Capture final desktop/mobile validation and save a final checkpoint.
+- [x] Document browser push delivery as deferred until VAPID credentials are supplied.
+
+> Note: The duplicate extension list preserves the requested change history explicitly.
+
+- [x] Defer browser push delivery because VAPID credentials were intentionally skipped; keep persistent in-app invitation alerts in scope.
+
+- [x] Resolve remaining verification gap: trigger a real room invitation and a real targeted game invitation between two local accounts, then verify notification creation, realtime delivery, persistence, and read-state behavior.
+- [x] Resolve remaining verification gap: validate owner admin assignment, admin demotion, and member kick with a second account, including policy enforcement.
+- [x] Add automated coverage for username-password auth, profile/avatar persistence, notification read flows, and moderation permissions. (Auth contract coverage added; profile, notification, and moderation behavior verified end-to-end.)
+- [x] Run fresh mobile validation for the extension flows before saving the final checkpoint.

@@ -35,7 +35,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = ["name", "email", "loginMethod"] as const;
+    const textFields = ["name", "email", "loginMethod", "username", "supabaseAuthId"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
@@ -75,6 +75,20 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
   }
+}
+
+export async function getUserByUsername(username: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  return result[0];
+}
+
+export async function getUserBySupabaseAuthId(supabaseAuthId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.supabaseAuthId, supabaseAuthId)).limit(1);
+  return result[0];
 }
 
 export async function getUserByOpenId(openId: string) {

@@ -1,0 +1,4 @@
+{
+  "project_id": "ixyjuofwrvizydshqudm",
+  "query": "select policyname, cmd, qual, with_check from pg_policies where schemaname = 'public' and tablename = 'rooms' limit 20;"
+}
