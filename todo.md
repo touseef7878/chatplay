@@ -57,3 +57,21 @@
 - [x] Resolve remaining verification gap: validate owner admin assignment, admin demotion, and member kick with a second account, including policy enforcement.
 - [x] Add automated coverage for username-password auth, profile/avatar persistence, notification read flows, and moderation permissions. (Auth contract coverage added; profile, notification, and moderation behavior verified end-to-end.)
 - [x] Run fresh mobile validation for the extension flows before saving the final checkpoint.
+
+## Mobile and developer-admin improvements
+
+- [x] Make every primary ChatPlay screen fully mobile responsive with a thumb-friendly bottom navigation or equivalent mobile navigation pattern.
+- [x] Reflow chat, room list, alerts, profile editor, member management, game launcher, and game panels for narrow screens without horizontal overflow.
+- [x] Add a secure developer-only user/profile deletion workflow that removes the Supabase Auth user and related profile data safely.
+- [x] Add confirmation, error handling, and audit-friendly feedback for developer user deletion.
+- [x] Optimize initial loading, room switching, realtime refresh, and common interactions to minimize avoidable delay.
+- [x] Add automated coverage for deletion authorization and responsive/performance-critical behavior where practical.
+- [x] Run desktop/mobile visual verification and save a new checkpoint.
+
+## Verification follow-ups
+
+- [x] Restrict developer account deletion server-side to the actual developer owner identity, not merely the generic admin role.
+- [x] Add persistent audit logging for developer-triggered deletions and surface the history in the developer panel.
+- [x] Complete a narrow-screen pass for authenticated room, alerts, profile, members, game launcher, and game-panel states, fixing any action-row overflow.
+- [x] Reduce initial-load cost with practical code-splitting or lazy loading and re-check bootstrap latency.
+- [x] Save a fresh checkpoint after the verification follow-ups are complete.

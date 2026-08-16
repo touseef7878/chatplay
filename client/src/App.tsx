@@ -2,15 +2,18 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
+import { lazy, Suspense } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import ChatPlay from "./pages/ChatPlay";
+const ChatPlay = lazy(() => import("./pages/ChatPlay"));
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={ChatPlay} />
+      <Route path={"/"}>
+        <Suspense fallback={<div className="grid min-h-screen place-items-center bg-[#0d1117] text-teal-200">Loading ChatPlay…</div>}><ChatPlay /></Suspense>
+      </Route>
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

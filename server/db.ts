@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { developerAuditLog, InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -103,4 +103,36 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function listUsersForDeveloper() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: users.id,
+    openId: users.openId,
+    username: users.username,
+    supabaseAuthId: users.supabaseAuthId,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn,
+  }).from(users).orderBy(desc(users.createdAt));
+}
+
+export async function deleteUserRecord(openId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.delete(users).where(eq(users.openId, openId));
+}
+
+export async function insertDeveloperAuditEntry(entry: typeof developerAuditLog.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.insert(developerAuditLog).values(entry);
+}
+
+export async function listDeveloperAuditEntries() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(developerAuditLog).orderBy(desc(developerAuditLog.createdAt)).limit(50);
+}

@@ -26,7 +26,17 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const developerAuditLog = mysqlTable("developerAuditLog", {
+  id: int("id").autoincrement().primaryKey(),
+  actorOpenId: varchar("actorOpenId", { length: 128 }).notNull(),
+  targetOpenId: varchar("targetOpenId", { length: 128 }).notNull(),
+  targetUsername: varchar("targetUsername", { length: 32 }),
+  targetSupabaseAuthId: varchar("targetSupabaseAuthId", { length: 64 }),
+  action: varchar("action", { length: 32 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+// TODO: Add your feature queries here as your product grows.

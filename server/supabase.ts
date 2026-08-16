@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import type { User } from "../drizzle/schema";
-import { getUserBySupabaseAuthId, getUserByUsername, upsertUser } from "./db";
+import { deleteUserRecord, getUserByOpenId, getUserBySupabaseAuthId, getUserByUsername, insertDeveloperAuditEntry, upsertUser } from "./db";
 
 function getSupabaseAdmin() {
   const url = process.env.VITE_SUPABASE_URL;
@@ -50,6 +50,47 @@ export async function registerLocalAccount(username: string, password: string, d
   const user = await getUserBySupabaseAuthId(authUser.id);
   if (!user) throw new Error("Account was created but could not be persisted");
   return user;
+}
+
+export async function deleteChatPlayUser(openId: string, actorOpenId: string) {
+  const user = await getUserByOpenId(openId);
+  if (!user) throw new Error("User account was not found");
+  if (!user.supabaseAuthId) {
+    await deleteUserRecord(openId);
+    await insertDeveloperAuditEntry({ actorOpenId, targetOpenId: openId, targetUsername: user.username, action: "delete_user" });
+    return { deletedOpenId: openId };
+  }
+
+  const admin = getSupabaseAdmin();
+  const authId = user.supabaseAuthId;
+  const voiceMessages = await admin.from("messages").select("voice_path").eq("sender_id", authId).not("voice_path", "is", null);
+  if (voiceMessages.error) throw voiceMessages.error;
+  const voicePaths = (voiceMessages.data ?? []).map(row => row.voice_path).filter((path): path is string => Boolean(path));
+
+  const cleanupSteps = [
+    () => admin.from("notifications").delete().or(`recipient_id.eq.${authId},actor_id.eq.${authId}`),
+    () => admin.from("game_players").delete().eq("user_id", authId),
+    () => admin.from("game_sessions").delete().eq("host_id", authId),
+    () => admin.from("messages").delete().eq("sender_id", authId),
+    () => admin.from("room_members").delete().eq("user_id", authId),
+    () => admin.from("rooms").delete().eq("created_by", authId),
+  ];
+  for (const cleanup of cleanupSteps) {
+    const result = await cleanup();
+    if (result.error) throw result.error;
+  }
+  if (voicePaths.length) await admin.storage.from("voice-messages").remove(voicePaths);
+
+  const avatarFiles = await admin.storage.from("avatars").list(authId, { limit: 1000 });
+  if (!avatarFiles.error && avatarFiles.data?.length) {
+    await admin.storage.from("avatars").remove(avatarFiles.data.map(file => `${authId}/${file.name}`));
+  }
+
+  const deleted = await admin.auth.admin.deleteUser(authId);
+  if (deleted.error) throw deleted.error;
+  await deleteUserRecord(openId);
+  await insertDeveloperAuditEntry({ actorOpenId, targetOpenId: openId, targetUsername: user.username, targetSupabaseAuthId: authId, action: "delete_user" });
+  return { deletedOpenId: openId };
 }
 
 export async function loginLocalAccount(username: string, password: string) {
