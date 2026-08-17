@@ -116,3 +116,6 @@ client/public/__manus__/version.json
 supabase/*.json
 notes/
 validation-notes.md
+
+# Local Supabase MCP request payloads
+.supabase-*.json

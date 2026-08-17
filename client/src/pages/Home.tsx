@@ -8,11 +8,8 @@ import { Streamdown } from 'streamdown';
  * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
  */
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
+  // The useAuth compatibility hook is backed by the Supabase username/password session.
+  // Use logout() for sign-out; registration and sign-in are rendered by ChatPlay.
   let { user, loading, error, isAuthenticated, logout } = useAuth();
 
   // If theme is switchable in App.tsx, we can implement theme toggling like this:

@@ -1,11 +1,13 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useSupabaseAuth } from "@/_core/hooks/useSupabaseAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { trpc } from "@/lib/trpc";
+import { listFreshDeveloperAudit, listFreshDeveloperUsers, deleteFreshDeveloperUser } from "@/lib/supabase-admin";
+import { loginWithSupabase, registerWithSupabase } from "@/lib/supabase-auth";
+import { acceptRoomInvitation as acceptRoomInvitationRpc, deleteRoom as deleteRoomRpc, inviteRoomMember as inviteRoomMemberRpc, joinPublicRoom as joinPublicRoomRpc, leaveRoom as leaveRoomRpc } from "@/lib/supabase-api";
 import { findTicTacToeWinner, GameKind, shuffledWord, TRIVIA_QUESTIONS } from "@/lib/game-utils";
 import { supabase } from "@/lib/supabase";
 import { connectionBannerState, DIRECTORY_REFRESH_INTERVAL_MS, shouldStickToBottom } from "@/lib/connection-utils";
@@ -19,7 +21,7 @@ import { toast } from "sonner";
 type Room = { id: string; name: string; description: string; visibility: string; created_by: string; created_at: string };
 type Profile = { id: string; display_name: string; avatar_seed: string; avatar_url?: string | null; membership_role?: "owner" | "admin" | "member" };
 type DeveloperUser = { openId: string; username: string | null; supabaseAuthId: string | null; name: string | null; email: string | null; role: "user" | "admin"; createdAt: Date; lastSignedIn: Date };
-type AuditEntry = { id: number; actorOpenId: string; targetOpenId: string; targetUsername: string | null; targetSupabaseAuthId: string | null; action: string; createdAt: Date };
+type AuditEntry = { id: string | number; actorOpenId: string; targetOpenId: string; targetUsername: string | null; targetSupabaseAuthId: string | null; action: string; createdAt: Date };
 type ChatMessage = { id: string; room_id: string; sender_id: string; kind: string; body: string | null; voice_path: string | null; image_path: string | null; duration_seconds: number | null; metadata: any; created_at: string; profiles?: Profile; message_reactions?: Array<{ emoji: string; user_id: string }> };
 type Game = { id: string; room_id: string; host_id: string; game_type: GameKind; status: string; state: any; winner_id: string | null };
 
@@ -31,9 +33,8 @@ function time(value: string) { return new Intl.DateTimeFormat(undefined, { hour:
 function identicon(seed: string) { const sum = seed.split("").reduce((value, char) => value + char.charCodeAt(0), 0); return `linear-gradient(135deg, hsl(${sum % 360} 72% 61%), hsl(${(sum * 7) % 360} 70% 48%))`; }
 
 export default function ChatPlay() {
-  const { user, loading, isAuthenticated, logout } = useAuth();
+  const { user, loading, isAuthenticated, logout } = useSupabaseAuth();
   const { theme, toggleTheme } = useTheme();
-  const { mutateAsync: bootstrapChat, isPending: bootstrapPending } = trpc.chatplay.bootstrap.useMutation();
   const [bridgeReady, setBridgeReady] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -67,21 +68,83 @@ export default function ChatPlay() {
   const voiceStart = useRef(0);
   const chatViewportRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const didBootstrap = useRef(false);
 
   const activeRoom = rooms.find(room => room.id === roomId) ?? null;
   const connectionState = connectionBannerState(isOnline, realtimeStatus, Boolean(roomId));
-  const pending = bootstrapPending || (isAuthenticated && user?.loginMethod === "password" && !bridgeReady);
+  const pending = loading || (isAuthenticated && !bridgeReady);
   const isDeveloper = user?.isDeveloper === true;
-  const developerUsers = trpc.developer.listUsers.useQuery(undefined, { enabled: developerOpen && isDeveloper, staleTime: 15_000 });
-  const developerAudit = trpc.developer.listAudit.useQuery(undefined, { enabled: developerOpen && isDeveloper, staleTime: 15_000 });
-  const deleteDeveloperUser = trpc.developer.deleteUser.useMutation({ onSuccess: () => { void developerUsers.refetch(); void developerAudit.refetch(); toast.success("User and profile deleted"); }, onError: error => toast.error(error.message) });
-  const acceptRoomInvitation = trpc.chatplay.acceptRoomInvitation.useMutation({ onSuccess: async result => { await loadRooms(); setMessages([]); setMembers([]); setActiveGame(null); setRoomId(result.roomId); setAlertsOpen(false); toast.success("You joined the private room"); }, onError: error => toast.error(error.message) });
-  const inviteRoomMember = trpc.chatplay.inviteRoomMember.useMutation({ onSuccess: async () => { toast.success("Invitation sent"); await loadRoom(); }, onError: error => toast.error(error.message) });
-  const joinPublicRoom = trpc.chatplay.joinPublicRoom.useMutation({ onSuccess: result => { setMessages([]); setMembers([]); setActiveGame(null); setRoomId(result.roomId); setSidebarOpen(false); }, onError: error => toast.error(error.message) });
-  const clearMyData = trpc.chatplay.clearMyData.useMutation({ onMutate: () => setCleanupStage("working"), onSuccess: result => { setCleanupStage("idle"); if (roomId) void loadRoom(false); else setMessages([]); toast.success(`Deleted ${result.deletedMessages} messages and ${result.deletedVoiceFiles} voice files in ${result.batchesProcessed} batches`); }, onError: error => { setCleanupStage("idle"); toast.error(error.message); } });
-  const leaveRoom = trpc.chatplay.leaveRoom.useMutation({ onSuccess: () => { setMessages([]); setMembers([]); setActiveGame(null); setRoomId(null); setProfile(current => current ? { ...current, membership_role: undefined } : current); void loadRooms(); toast.success("You left the room"); }, onError: error => toast.error(error.message) });
-  const deleteRoom = trpc.chatplay.deleteRoom.useMutation({ onSuccess: () => { setMessages([]); setMembers([]); setActiveGame(null); setRoomId(null); setProfile(current => current ? { ...current, membership_role: undefined } : current); void loadRooms(); toast.success("Room deleted"); }, onError: error => toast.error(error.message) });
+  const [developerUsersData, setDeveloperUsersData] = useState<DeveloperUser[]>([]);
+  const [developerAuditData, setDeveloperAuditData] = useState<AuditEntry[]>([]);
+  const [developerLoading, setDeveloperLoading] = useState(false);
+  const [developerDeleting, setDeveloperDeleting] = useState(false);
+  const refreshDeveloper = async () => {
+    if (!isDeveloper) return;
+    setDeveloperLoading(true);
+    try {
+      const [users, audit] = await Promise.all([listFreshDeveloperUsers(), listFreshDeveloperAudit()]);
+      setDeveloperUsersData(users.map(account => ({ openId: account.id, username: account.username, supabaseAuthId: account.id, name: account.display_name, email: null, role: account.is_developer ? "admin" : "user", createdAt: new Date(account.created_at), lastSignedIn: new Date(account.created_at) })));
+      setDeveloperAuditData(audit.map(entry => ({ id: entry.id, actorOpenId: entry.actor_id, targetOpenId: entry.target_id, targetUsername: entry.target_username, targetSupabaseAuthId: entry.target_id, action: entry.action, createdAt: new Date(entry.created_at) })));
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to load developer data"); }
+    finally { setDeveloperLoading(false); }
+  };
+  useEffect(() => { if (developerOpen && isDeveloper) void refreshDeveloper(); }, [developerOpen, isDeveloper]);
+  const developerUsers = { isLoading: developerLoading, data: developerUsersData, refetch: refreshDeveloper };
+  const developerAudit = { isLoading: developerLoading, data: developerAuditData, refetch: refreshDeveloper };
+  const deleteDeveloperUser = { isPending: developerDeleting, mutate: ({ openId }: { openId: string }) => { void (async () => { setDeveloperDeleting(true); try { await deleteFreshDeveloperUser(openId); await refreshDeveloper(); toast.success("User and profile deleted"); } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to delete user"); } finally { setDeveloperDeleting(false); } })(); } };
+  const acceptRoomInvitation = async (notificationId: string) => {
+    try {
+      const result = await acceptRoomInvitationRpc(notificationId);
+      await loadRooms(); setMessages([]); setMembers([]); setActiveGame(null); setRoomId(result.roomId); setAlertsOpen(false); toast.success("You joined the private room");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to accept invitation"); }
+  };
+  const inviteRoomMember = async (roomId: string, inviteeId: string) => {
+    try { await inviteRoomMemberRpc(roomId, inviteeId); toast.success("Invitation sent"); await loadRoom(); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Unable to send invitation"); }
+  };
+  const joinPublicRoom = async (roomId: string) => {
+    try { const result = await joinPublicRoomRpc(roomId); setMessages([]); setMembers([]); setActiveGame(null); setRoomId(result.roomId); setSidebarOpen(false); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Unable to join room"); }
+  };
+  const clearMyData = async () => {
+    if (!profile) return;
+    setCleanupStage("working");
+    try {
+      const result = await supabase.from("messages").select("id, voice_path, image_path").eq("sender_id", profile.id).limit(5000);
+      if (result.error) throw result.error;
+      const rows = result.data ?? [];
+      const voicePaths = rows.map(row => row.voice_path).filter((path): path is string => Boolean(path));
+      const imagePaths = rows.map(row => row.image_path).filter((path): path is string => Boolean(path));
+      if (voicePaths.length) {
+        const removed = await supabase.storage.from("voice-messages").remove(voicePaths);
+        if (removed.error) throw removed.error;
+      }
+      if (imagePaths.length) {
+        const removed = await supabase.storage.from("chat-images").remove(imagePaths);
+        if (removed.error) throw removed.error;
+      }
+      let deletedMessages = 0;
+      for (let offset = 0; offset < rows.length; offset += 100) {
+        const ids = rows.slice(offset, offset + 100).map(row => row.id);
+        const deleted = await supabase.from("messages").delete().in("id", ids).eq("sender_id", profile.id);
+        if (deleted.error) throw deleted.error;
+        deletedMessages += ids.length;
+      }
+      setCleanupStage("idle");
+      if (roomId) void loadRoom(false); else setMessages([]);
+      toast.success(`Deleted ${deletedMessages} messages, ${voicePaths.length} voice files, and ${imagePaths.length} images`);
+    } catch (error) {
+      setCleanupStage("idle");
+      toast.error(error instanceof Error ? error.message : "Unable to clear your data");
+    }
+  };
+  const leaveRoom = async (roomId: string) => {
+    try { await leaveRoomRpc(roomId); setMessages([]); setMembers([]); setActiveGame(null); setRoomId(null); setProfile(current => current ? { ...current, membership_role: undefined } : current); await loadRooms(); toast.success("You left the room"); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Unable to leave room"); }
+  };
+  const deleteRoom = async (roomId: string) => {
+    try { await deleteRoomRpc(roomId); setMessages([]); setMembers([]); setActiveGame(null); setRoomId(null); setProfile(current => current ? { ...current, membership_role: undefined } : current); await loadRooms(); toast.success("Room deleted"); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Unable to delete room"); }
+  };
 
   useEffect(() => {
     const handleOnline = () => { setIsOnline(true); setRealtimeStatus("reconnecting"); };
@@ -93,25 +156,11 @@ export default function ChatPlay() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !user || user.loginMethod !== "password" || bridgeReady || bootstrapPending || didBootstrap.current) return;
-    didBootstrap.current = true;
-    void (async () => {
-      try {
-        const session = await bootstrapChat();
-        const verified = await supabase.auth.setSession({ access_token: session.accessToken, refresh_token: session.refreshToken });
-        if (verified.error) throw verified.error;
-        await supabase.realtime.setAuth(session.accessToken);
-        setBridgeReady(true);
-        setRealtimeStatus("connected");
-      } catch {
-        didBootstrap.current = false;
-        await supabase.auth.signOut();
-        await logout();
-        toast.error("Your session is no longer valid. Please sign in again.");
-        window.location.reload();
-      }
-    })();
-  }, [isAuthenticated, user?.openId, bridgeReady, bootstrapPending, bootstrapChat]);
+    if (!loading) {
+      setBridgeReady(isAuthenticated);
+      if (isAuthenticated) setRealtimeStatus("connected");
+    }
+  }, [loading, isAuthenticated]);
 
   const loadRooms = async () => {
     const { data, error } = await supabase.from("rooms").select("*").order("created_at", { ascending: false });
@@ -217,12 +266,12 @@ export default function ChatPlay() {
       setMessages([]); setMembers([]); setActiveGame(null); setRoomId(room.id); setSidebarOpen(false);
       return;
     }
-    await joinPublicRoom.mutateAsync({ roomId: room.id });
+    await joinPublicRoom(room.id);
   };
 
   const addMember = async (member: Profile) => {
     if (!roomId) return;
-    await inviteRoomMember.mutateAsync({ roomId, inviteeId: member.id });
+    await inviteRoomMember(roomId, member.id);
   };
 
   const saveProfile = async () => {
@@ -421,8 +470,8 @@ export default function ChatPlay() {
     </nav>
     <AnimatePresence>{newRoomOpen && <Modal title="Make a new room" onClose={() => setNewRoomOpen(false)}><div className="space-y-4"><Input value={newRoom.name} onChange={event => setNewRoom({ ...newRoom, name: event.target.value })} placeholder="Room name" className="border-white/10 bg-white/5" /><Textarea value={newRoom.description} onChange={event => setNewRoom({ ...newRoom, description: event.target.value })} placeholder="What will people talk and play about?" className="border-white/10 bg-white/5" /><div className="grid grid-cols-2 gap-2">{["public", "private"].map(visibility => <button key={visibility} onClick={() => setNewRoom({ ...newRoom, visibility })} className={`rounded-xl border p-3 text-left capitalize ${newRoom.visibility === visibility ? "border-teal-300/60 bg-teal-300/10 text-teal-100" : "border-white/10 text-slate-400"}`}><p className="text-sm font-semibold">{visibility}</p><p className="mt-1 text-xs opacity-70">{visibility === "public" ? "Anyone can discover and join" : "Only members can see it"}</p></button>)}</div><Button onClick={() => void createRoom()} className="w-full bg-teal-300 text-[#082426] hover:bg-teal-200">Create room</Button></div></Modal>}</AnimatePresence>
     <AnimatePresence>{gameOpen && <Modal title="Start a game" onClose={() => setGameOpen(false)}><div className="space-y-3"><Select value={opponentId || "room"} onValueChange={value => setOpponentId(value === "room" ? "" : value)}><SelectTrigger aria-label="Choose a room member to invite" className="h-11 w-full border-white/10 bg-[#0f1720] text-sm text-slate-100"><SelectValue placeholder="Choose a player" /></SelectTrigger><SelectContent className="border-white/10 bg-[#18222d] text-slate-100"><SelectItem value="room" className="text-slate-100 focus:bg-teal-300/15 focus:text-teal-100">Open invitation to the room</SelectItem>{members.filter(member => member.id !== profile?.id).map(member => <SelectItem key={member.id} value={member.id} className="text-slate-100 focus:bg-teal-300/15 focus:text-teal-100">{member.display_name}</SelectItem>)}</SelectContent></Select><GameChoice icon="⊹" title="Tic-Tac-Toe" text="Challenge a selected room member turn by turn." onClick={() => void createGame("tic_tac_toe")} /><div className="rounded-2xl border border-white/10 p-4"><div className="flex items-start justify-between"><div><p className="font-semibold">Word Scramble</p><p className="mt-1 text-xs text-slate-400">Choose the word. Everyone races to solve it.</p></div><span className="text-xl">⌘</span></div><Input value={gameWord} onChange={event => setGameWord(event.target.value)} className="mt-3 border-white/10 bg-white/5" placeholder="Secret word" /><Button onClick={() => void createGame("word_scramble")} className="mt-3 w-full bg-white/10 hover:bg-white/15">Start scramble</Button></div><GameChoice icon="?" title="Trivia Sprint" text="Launch a multiple-choice question with a live leaderboard." onClick={() => void createGame("trivia")} /></div></Modal>}</AnimatePresence>
-    <AnimatePresence>{profileOpen && <Modal title="Edit your profile" onClose={() => setProfileOpen(false)}><div className="space-y-4"><div className="flex items-center gap-4"><Avatar className="size-16"><AvatarImage src={profileForm.avatarUrl || undefined} alt="" /><AvatarFallback style={{ background: identicon(profile?.avatar_seed ?? "profile") }} className="text-lg font-bold text-white">{initials(profileForm.displayName || "U")}</AvatarFallback></Avatar><label className="cursor-pointer rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/5"><Upload className="mr-2 inline size-3.5" />Upload avatar<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={event => setAvatarFile(event.target.files?.[0] ?? null)} /></label></div><div><label className="mb-1.5 block text-xs font-medium text-slate-400">Display name</label><Input value={profileForm.displayName} onChange={event => setProfileForm({ ...profileForm, displayName: event.target.value })} maxLength={48} className="border-white/10 bg-white/5" /></div><p className="text-xs text-slate-500">Your unique username is used to sign in and cannot be changed here.</p><Button onClick={() => void saveProfile()} className="w-full bg-teal-300 text-[#082426] hover:bg-teal-200">Save profile</Button><div className="border-t border-white/10 pt-4"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Data & room settings</p><p className="mt-1 text-xs leading-relaxed text-slate-500">Clear your messages and voice files without deleting your account.</p><Button variant="outline" disabled={clearMyData.isPending} onClick={() => { if (window.confirm("Delete all messages and voice files you sent? This cannot be undone.")) clearMyData.mutate(); }} className="mt-3 w-full border-rose-300/20 text-rose-200 hover:bg-rose-300/10">{clearMyData.isPending || cleanupStage === "working" ? "Cleaning in 100-message batches…" : "Delete my messages & voice files"}</Button>{activeRoom && profile?.membership_role === "owner" && <Button variant="outline" disabled={deleteRoom.isPending} onClick={() => { if (window.confirm(`Delete ${activeRoom.name} and all of its content? This cannot be undone.`)) { setProfileOpen(false); deleteRoom.mutate({ roomId: activeRoom.id }); } }} className="mt-2 w-full border-rose-300/20 text-rose-200 hover:bg-rose-300/10">Delete this room</Button>}{activeRoom && profile?.membership_role !== "owner" && <Button variant="outline" disabled={leaveRoom.isPending} onClick={() => { if (window.confirm(`Leave ${activeRoom.name}?`)) { setProfileOpen(false); leaveRoom.mutate({ roomId: activeRoom.id }); } }} className="mt-2 w-full border-amber-300/20 text-amber-200 hover:bg-amber-300/10">Leave this room</Button>}</div></div></Modal>}</AnimatePresence>
-    <AnimatePresence>{alertsOpen && <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="fixed left-3 right-3 top-[4.5rem] z-40 w-auto rounded-2xl border border-white/10 bg-[#141d27] p-3 shadow-2xl sm:left-auto sm:right-4 sm:top-20 sm:w-[min(360px,calc(100vw-2rem))]"><div className="mb-2 flex items-center justify-between"><p className="text-sm font-semibold">Invitations & alerts</p><button aria-label="Close alerts" onClick={() => setAlertsOpen(false)}><X className="size-4 text-slate-500" /></button></div><div className="max-h-80 space-y-2 overflow-auto">{alerts.length ? alerts.map(alert => <button key={alert.id} onClick={() => { if (alert.kind === "room_invite") { acceptRoomInvitation.mutate({ notificationId: alert.id }); } else { void markAlertRead(alert.id); if (alert.room_id) setRoomId(alert.room_id); setAlertsOpen(false); } }} className={`w-full rounded-xl p-3 text-left transition hover:bg-white/10 ${alert.read_at ? "bg-white/[0.03]" : "bg-teal-300/10"}`}><div className="flex items-start gap-2"><Bell className="mt-0.5 size-4 shrink-0 text-teal-200" /><div><p className="text-sm font-medium">{alert.title}</p><p className="mt-1 text-xs text-slate-400">{alert.body}</p><p className="mt-2 text-[10px] text-slate-500">{time(alert.created_at)}{!alert.read_at && <span className="ml-2 text-teal-200">New</span>}</p></div></div></button>) : <p className="px-2 py-6 text-center text-sm text-slate-500">No new invitations yet.</p>}</div></motion.div>}</AnimatePresence>
+    <AnimatePresence>{profileOpen && <Modal title="Edit your profile" onClose={() => setProfileOpen(false)}><div className="space-y-4"><div className="flex items-center gap-4"><Avatar className="size-16"><AvatarImage src={profileForm.avatarUrl || undefined} alt="" /><AvatarFallback style={{ background: identicon(profile?.avatar_seed ?? "profile") }} className="text-lg font-bold text-white">{initials(profileForm.displayName || "U")}</AvatarFallback></Avatar><label className="cursor-pointer rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/5"><Upload className="mr-2 inline size-3.5" />Upload avatar<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={event => setAvatarFile(event.target.files?.[0] ?? null)} /></label></div><div><label className="mb-1.5 block text-xs font-medium text-slate-400">Display name</label><Input value={profileForm.displayName} onChange={event => setProfileForm({ ...profileForm, displayName: event.target.value })} maxLength={48} className="border-white/10 bg-white/5" /></div><p className="text-xs text-slate-500">Your unique username is used to sign in and cannot be changed here.</p><Button onClick={() => void saveProfile()} className="w-full bg-teal-300 text-[#082426] hover:bg-teal-200">Save profile</Button><div className="border-t border-white/10 pt-4"><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Data & room settings</p><p className="mt-1 text-xs leading-relaxed text-slate-500">Clear your messages and voice files without deleting your account.</p><Button variant="outline" disabled={cleanupStage === "working"} onClick={() => { if (window.confirm("Delete all messages and voice files you sent? This cannot be undone.")) void clearMyData(); }} className="mt-3 w-full border-rose-300/20 text-rose-200 hover:bg-rose-300/10">{cleanupStage === "working" ? "Cleaning in 100-message batches…" : "Delete my messages & voice files"}</Button>{activeRoom && profile?.membership_role === "owner" && <Button variant="outline" disabled={false} onClick={() => { if (window.confirm(`Delete ${activeRoom.name} and all of its content? This cannot be undone.`)) { setProfileOpen(false); void deleteRoom(activeRoom.id); } }} className="mt-2 w-full border-rose-300/20 text-rose-200 hover:bg-rose-300/10">Delete this room</Button>}{activeRoom && profile?.membership_role !== "owner" && <Button variant="outline" disabled={false} onClick={() => { if (window.confirm(`Leave ${activeRoom.name}?`)) { setProfileOpen(false); void leaveRoom(activeRoom.id); } }} className="mt-2 w-full border-amber-300/20 text-amber-200 hover:bg-amber-300/10">Leave this room</Button>}</div></div></Modal>}</AnimatePresence>
+    <AnimatePresence>{alertsOpen && <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="fixed left-3 right-3 top-[4.5rem] z-40 w-auto rounded-2xl border border-white/10 bg-[#141d27] p-3 shadow-2xl sm:left-auto sm:right-4 sm:top-20 sm:w-[min(360px,calc(100vw-2rem))]"><div className="mb-2 flex items-center justify-between"><p className="text-sm font-semibold">Invitations & alerts</p><button aria-label="Close alerts" onClick={() => setAlertsOpen(false)}><X className="size-4 text-slate-500" /></button></div><div className="max-h-80 space-y-2 overflow-auto">{alerts.length ? alerts.map(alert => <button key={alert.id} onClick={() => { if (alert.kind === "room_invite") { void acceptRoomInvitation(alert.id); } else { void markAlertRead(alert.id); if (alert.room_id) setRoomId(alert.room_id); setAlertsOpen(false); } }} className={`w-full rounded-xl p-3 text-left transition hover:bg-white/10 ${alert.read_at ? "bg-white/[0.03]" : "bg-teal-300/10"}`}><div className="flex items-start gap-2"><Bell className="mt-0.5 size-4 shrink-0 text-teal-200" /><div><p className="text-sm font-medium">{alert.title}</p><p className="mt-1 text-xs text-slate-400">{alert.body}</p><p className="mt-2 text-[10px] text-slate-500">{time(alert.created_at)}{!alert.read_at && <span className="ml-2 text-teal-200">New</span>}</p></div></div></button>) : <p className="px-2 py-6 text-center text-sm text-slate-500">No new invitations yet.</p>}</div></motion.div>}</AnimatePresence>
     <AnimatePresence>{membersOpen && <Modal title={`${activeRoom?.name ?? "Room"} members`} onClose={() => setMembersOpen(false)}><div className="space-y-3"><p className="text-xs text-slate-400">{activeRoom?.visibility === "private" ? "Private rooms can only be joined by members invited here." : "Anyone can join this public room."}</p><div className="max-h-52 space-y-2 overflow-auto">{members.map(member => <div key={member.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-white/[0.045] p-2.5"><Avatar className="size-8"><AvatarImage src={member.avatar_url ?? undefined} alt="" /><AvatarFallback style={{ background: identicon(member.avatar_seed) }} className="text-[10px] text-white">{initials(member.display_name)}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="truncate text-sm">{member.display_name}</p><p className="text-[10px] uppercase tracking-wide text-slate-500">{member.membership_role ?? "member"}</p></div>{member.membership_role === "owner" && <Crown className="size-3.5 text-amber-300" />}{profile?.membership_role === "owner" && member.id !== profile.id && member.membership_role !== "owner" && <div className="ml-auto flex flex-wrap justify-end gap-1"><button onClick={() => void setMemberRole(member, member.membership_role === "admin" ? "member" : "admin")} className="rounded-md bg-white/5 px-2 py-1 text-[10px] text-teal-200">{member.membership_role === "admin" ? "Demote" : "Make admin"}</button></div>}{["owner", "admin"].includes(profile?.membership_role ?? "") && member.id !== profile?.id && member.membership_role !== "owner" && <button aria-label={`Kick ${member.display_name}`} onClick={() => void removeMember(member)} className="rounded-md bg-rose-300/10 px-2 py-1 text-[10px] text-rose-300 hover:bg-rose-300/20">Kick</button>}</div>)}</div>{activeRoom?.visibility === "private" && profile?.id === activeRoom.created_by && <><p className="pt-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Invite to this room</p><div className="max-h-44 space-y-2 overflow-auto">{directory.filter(candidate => !members.some(member => member.id === candidate.id)).map(candidate => <button key={candidate.id} onClick={() => void addMember(candidate)} className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left hover:bg-white/[0.05]"><Avatar className="size-8"><AvatarImage src={candidate.avatar_url ?? undefined} alt="" /><AvatarFallback style={{ background: identicon(candidate.avatar_seed) }} className="text-[10px] text-white">{initials(candidate.display_name)}</AvatarFallback></Avatar><span className="text-sm">{candidate.display_name}</span><CirclePlus className="ml-auto size-4 text-teal-200" /></button>)}</div></>}</div></Modal>}</AnimatePresence>
     <AnimatePresence>{developerOpen && isDeveloper && <Modal title="Developer account management" onClose={() => setDeveloperOpen(false)}><div className="space-y-3"><div className="rounded-2xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-relaxed text-amber-100/80"><ShieldCheck className="mr-2 inline size-4 text-amber-200" />This destructive tool is restricted to the developer owner account. Deleting a user removes their Supabase Auth identity, profile, rooms, messages, memberships, games, and alerts.</div><div className="max-h-[52vh] space-y-2 overflow-y-auto">{developerUsers.isLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading accounts…</p> : developerUsers.data?.map((account: DeveloperUser) => { const protectedAccount = account.openId === user?.openId || account.openId === (import.meta.env.VITE_OWNER_OPEN_ID as string | undefined); return <div key={account.openId} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.035] p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{account.name ?? account.username ?? "Unnamed user"}</p><p className="truncate text-xs text-slate-500">@{account.username ?? "no username"} · {account.role}</p></div><button disabled={protectedAccount || deleteDeveloperUser.isPending} onClick={() => { if (window.confirm(`Delete ${account.name ?? account.username ?? "this user"}? This cannot be undone.`)) deleteDeveloperUser.mutate({ openId: account.openId }); }} className="grid size-9 shrink-0 place-items-center rounded-xl bg-rose-300/10 text-rose-200 disabled:cursor-not-allowed disabled:opacity-30" aria-label={`Delete ${account.name ?? account.username ?? "user"}`}><Trash2 className="size-4" /></button></div>; })}</div><div className="border-t border-white/10 pt-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Deletion history</p><div className="max-h-32 space-y-1 overflow-y-auto">{developerAudit.isLoading ? <p className="text-xs text-slate-500">Loading history…</p> : developerAudit.data?.length ? developerAudit.data.map((entry: AuditEntry) => <div key={entry.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-400">Deleted @{entry.targetUsername ?? entry.targetOpenId.slice(0, 12)}</span><span className="shrink-0 text-slate-600">{new Date(entry.createdAt).toLocaleDateString()}</span></div>) : <p className="text-xs text-slate-500">No deletions recorded.</p>}</div></div></div></Modal>}</AnimatePresence>
   </div>;
@@ -446,16 +495,13 @@ function Landing() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const login = trpc.auth.login.useMutation();
-  const register = trpc.auth.register.useMutation();
-
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (mode === "login") {
-      login.mutate({ username, password }, { onSuccess: () => window.location.reload(), onError: error => toast.error(error.message) });
+      loginWithSupabase(username, password).then(() => window.location.reload()).catch(error => toast.error(error instanceof Error ? error.message : "Unable to sign in"));
     } else {
-      register.mutate({ username, password, displayName }, { onSuccess: () => window.location.reload(), onError: error => toast.error(error.message) });
+      registerWithSupabase(username, password, displayName).then(() => window.location.reload()).catch(error => toast.error(error instanceof Error ? error.message : "Unable to create account"));
     }
   };
 
-  return <main className="min-h-screen overflow-hidden bg-[#0d1117] text-slate-100"><div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-between px-6 py-8"><nav className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-2xl bg-teal-300 text-[#082426]"><Gamepad2 className="size-5" /></div><span className="font-semibold">ChatPlay</span></div></nav><section className="grid items-center gap-12 py-16 lg:grid-cols-[1.1fr_.9fr]"><div><p className="text-sm font-semibold uppercase tracking-[.2em] text-teal-200">Real-time rooms, real play</p><h1 className="mt-5 max-w-2xl text-5xl font-semibold leading-[.98] tracking-tight sm:text-6xl">Your group chat just got a game night.</h1><p className="mt-6 max-w-xl text-base leading-7 text-slate-400">A social space for instant rooms, voice notes, reactions, and multiplayer games that finish right where the conversation started.</p></div><div className="relative mx-auto w-full max-w-md rounded-[32px] border border-white/10 bg-[#141d27] p-6 shadow-[0_28px_100px_rgba(0,0,0,.42)]"><form onSubmit={submit} className="space-y-4"><div className="flex gap-4 border-b border-white/5 pb-4"><button type="button" onClick={() => setMode("login")} className={`pb-2 text-sm font-semibold transition ${mode === "login" ? "border-b-2 border-teal-300 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>Sign in</button><button type="button" onClick={() => setMode("register")} className={`pb-2 text-sm font-semibold transition ${mode === "register" ? "border-b-2 border-teal-300 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>Create account</button></div>{mode === "register" && <div><label className="mb-1.5 block text-xs font-medium text-slate-400">Display name</label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} required minLength={1} maxLength={48} className="border-white/10 bg-white/5" placeholder="How others see you" /></div>}<div><label className="mb-1.5 block text-xs font-medium text-slate-400">Username</label><Input value={username} onChange={e => setUsername(e.target.value)} required minLength={3} maxLength={24} pattern="[a-zA-Z0-9_]+" className="border-white/10 bg-white/5" placeholder="Unique handle" /></div><div><label className="mb-1.5 block text-xs font-medium text-slate-400">Password</label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === "register" ? 8 : 1} className="border-white/10 bg-white/5" placeholder="••••••••" /></div><Button type="submit" disabled={login.isPending || register.isPending} className="mt-2 w-full rounded-xl bg-teal-300 font-semibold text-[#082426] hover:bg-teal-200">{mode === "login" ? "Enter ChatPlay" : "Create account"}</Button></form></div></section></div></main>; }
+  return <main className="min-h-screen overflow-hidden bg-[#0d1117] text-slate-100"><div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-between px-6 py-8"><nav className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-2xl bg-teal-300 text-[#082426]"><Gamepad2 className="size-5" /></div><span className="font-semibold">ChatPlay</span></div></nav><section className="grid items-center gap-12 py-16 lg:grid-cols-[1.1fr_.9fr]"><div><p className="text-sm font-semibold uppercase tracking-[.2em] text-teal-200">Real-time rooms, real play</p><h1 className="mt-5 max-w-2xl text-5xl font-semibold leading-[.98] tracking-tight sm:text-6xl">Your group chat just got a game night.</h1><p className="mt-6 max-w-xl text-base leading-7 text-slate-400">A social space for instant rooms, voice notes, reactions, and multiplayer games that finish right where the conversation started.</p></div><div className="relative mx-auto w-full max-w-md rounded-[32px] border border-white/10 bg-[#141d27] p-6 shadow-[0_28px_100px_rgba(0,0,0,.42)]"><form onSubmit={submit} className="space-y-4"><div className="flex gap-4 border-b border-white/5 pb-4"><button type="button" onClick={() => setMode("login")} className={`pb-2 text-sm font-semibold transition ${mode === "login" ? "border-b-2 border-teal-300 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>Sign in</button><button type="button" onClick={() => setMode("register")} className={`pb-2 text-sm font-semibold transition ${mode === "register" ? "border-b-2 border-teal-300 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>Create account</button></div>{mode === "register" && <div><label className="mb-1.5 block text-xs font-medium text-slate-400">Display name</label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} required minLength={1} maxLength={48} className="border-white/10 bg-white/5" placeholder="How others see you" /></div>}<div><label className="mb-1.5 block text-xs font-medium text-slate-400">Username</label><Input value={username} onChange={e => setUsername(e.target.value)} required minLength={3} maxLength={24} pattern="[a-zA-Z0-9_]+" className="border-white/10 bg-white/5" placeholder="Unique handle" /></div><div><label className="mb-1.5 block text-xs font-medium text-slate-400">Password</label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={mode === "register" ? 8 : 1} className="border-white/10 bg-white/5" placeholder="••••••••" /></div><Button type="submit" disabled={false} className="mt-2 w-full rounded-xl bg-teal-300 font-semibold text-[#082426] hover:bg-teal-200">{mode === "login" ? "Enter ChatPlay" : "Create account"}</Button></form></div></section></div></main>; }

@@ -188,3 +188,35 @@
 - [x] Ensure README documents installation, environment variables, Supabase setup, migrations, storage, tests, build, and local development.
 - [x] Verify clone-local commands and fix any packaging or documentation gaps.
 - [x] Save an updated checkpoint after the repository audit.
+
+## Vercel frontend / Supabase backend refactor
+
+- [x] Audit client imports, tRPC calls, server-only dependencies, storage/auth flows, and build assumptions for independent Vercel frontend deployment.
+- [x] Define and implement a Vercel-compatible frontend build/configuration while preserving Supabase Auth, Database, Realtime, Storage, and backend authorization.
+- [x] Document Vercel environment variables, Supabase CORS/redirect configuration, deployment steps, and local development boundaries.
+- [x] Run typecheck, tests, production build, and deployment-readiness checks, then save a Vercel-ready checkpoint.
+
+## Supabase-only backend migration for Vercel
+
+- [x] Inventory every frontend tRPC query/mutation and map it to Supabase Auth, Postgres/RPC, Realtime, Storage, or Edge Function behavior.
+- [x] Add secure Supabase Edge Function/RPC contracts for protected auth/session, room, message, invitation, game, moderation, cleanup, and developer operations.
+- [x] Replace the frontend tRPC provider and calls with the Supabase-only API boundary while preserving RLS and realtime behavior.
+- [x] Add Vercel frontend configuration, Supabase Edge Function deployment configuration, CORS/redirect documentation, and migration runbooks.
+- [x] Run typecheck, tests, production build, security checks, and disposable-account end-to-end validation before saving the migration checkpoint.
+
+## Free-tier constraints
+
+- [x] Keep the frontend deployable on Vercel free tier and backend services within Supabase free-tier-compatible features.
+- [x] Avoid reserved servers, paid background workers, paid queues, paid-only storage/CDN features, and high-frequency polling.
+- [x] Document expected free-tier quotas, operational trade-offs, and any optional paid upgrades without enabling them.
+
+## Fresh Supabase-only account reset
+
+- [x] Document that legacy username/password accounts and legacy Drizzle user records are not migrated.
+- [x] Add fresh Supabase profile fields and username uniqueness constraints needed by the new account flow.
+- [x] Keep the reset non-destructive to the current project until the new flow is validated; require explicit migration/reset execution steps.
+
+## Supabase advisor follow-ups
+
+- [ ] Review the intentional authenticated SECURITY DEFINER RPC exposure with the Supabase security advisor and keep only functions required by the browser RPC boundary.
+- [ ] Enable Supabase Auth leaked-password protection in the project dashboard when the account policy is approved.
