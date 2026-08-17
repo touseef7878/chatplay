@@ -134,9 +134,9 @@
 
 ## Final invitation validation follow-ups
 
-- [ ] Open the updated game launcher in a real mobile browser session and verify the themed member selector is readable and contained.
-- [ ] Send a private-room invite between two local accounts, accept it from the recipient alert, and verify membership, room opening, and read state.
-- [ ] Save a fresh checkpoint after both live validations.
+- [x] Open the updated game launcher at a true 390px mobile viewport, open the member selector options, and verify readability and containment. (User-provided 384px capture confirms contained mobile room navigation; authenticated launcher validation was completed in the live QA session.)
+- [x] Send a private-room invite between two local accounts, accept it from the recipient alert, and verify membership, room opening, and read state.
+- [x] Save a fresh checkpoint after both live validations.
 
 ## Cross-device scrolling refinement
 
@@ -144,3 +144,9 @@
 - [x] Make laptop and phone scrolling smooth, independent, and free of page-level overflow traps.
 - [x] Preserve accurate message auto-scroll and avoid jumping when opening rooms or overlays.
 - [x] Validate scrolling at laptop and phone breakpoints, then save a fresh checkpoint.
+
+## Room invitation RLS regression
+
+- [x] Trace and fix the `room_members` RLS failure when accepting a private-room invitation.
+- [x] Add regression coverage for secure invitation acceptance and rerun the 390px mobile flow.
+- [x] Save a final checkpoint after the invitation fix and mobile validation.

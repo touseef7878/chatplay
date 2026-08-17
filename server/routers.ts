@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
-import { acceptRoomInvitation, clearMyChatData, createLinkedSupabaseSession, deleteChatPlayUser, deleteChatRoom, leaveChatRoom, loginLocalAccount, registerLocalAccount } from "./supabase";
+import { acceptRoomInvitation, clearMyChatData, createLinkedSupabaseSession, deleteChatPlayUser, deleteChatRoom, inviteRoomMember, joinPublicRoom, leaveChatRoom, loginLocalAccount, registerLocalAccount } from "./supabase";
 import { listDeveloperAuditEntries, listUsersForDeveloper } from "./db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -56,6 +56,8 @@ export const appRouter = router({
     bootstrap: protectedProcedure.mutation(async ({ ctx }) => createLinkedSupabaseSession(ctx.user)),
     clearMyData: protectedProcedure.mutation(({ ctx }) => clearMyChatData(ctx.user.openId)),
     acceptRoomInvitation: protectedProcedure.input(z.object({ notificationId: z.string().uuid() })).mutation(({ ctx, input }) => acceptRoomInvitation(ctx.user.openId, input.notificationId)),
+    inviteRoomMember: protectedProcedure.input(z.object({ roomId: z.string().uuid(), inviteeId: z.string().uuid() })).mutation(({ ctx, input }) => inviteRoomMember(ctx.user.openId, input.roomId, input.inviteeId)),
+    joinPublicRoom: protectedProcedure.input(z.object({ roomId: z.string().uuid() })).mutation(({ ctx, input }) => joinPublicRoom(ctx.user.openId, input.roomId)),
     leaveRoom: protectedProcedure.input(z.object({ roomId: z.string().uuid() })).mutation(({ ctx, input }) => leaveChatRoom(ctx.user.openId, input.roomId)),
     deleteRoom: protectedProcedure.input(z.object({ roomId: z.string().uuid() })).mutation(({ ctx, input }) => deleteChatRoom(ctx.user.openId, input.roomId)),
   }),

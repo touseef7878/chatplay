@@ -74,6 +74,8 @@ export default function ChatPlay() {
   const developerAudit = trpc.developer.listAudit.useQuery(undefined, { enabled: developerOpen && isDeveloper, staleTime: 15_000 });
   const deleteDeveloperUser = trpc.developer.deleteUser.useMutation({ onSuccess: () => { void developerUsers.refetch(); void developerAudit.refetch(); toast.success("User and profile deleted"); }, onError: error => toast.error(error.message) });
   const acceptRoomInvitation = trpc.chatplay.acceptRoomInvitation.useMutation({ onSuccess: async result => { await loadRooms(); setMessages([]); setMembers([]); setActiveGame(null); setRoomId(result.roomId); setAlertsOpen(false); toast.success("You joined the private room"); }, onError: error => toast.error(error.message) });
+  const inviteRoomMember = trpc.chatplay.inviteRoomMember.useMutation({ onSuccess: async () => { toast.success("Invitation sent"); await loadRoom(); }, onError: error => toast.error(error.message) });
+  const joinPublicRoom = trpc.chatplay.joinPublicRoom.useMutation({ onSuccess: result => { setMessages([]); setMembers([]); setActiveGame(null); setRoomId(result.roomId); setSidebarOpen(false); }, onError: error => toast.error(error.message) });
   const clearMyData = trpc.chatplay.clearMyData.useMutation({ onMutate: () => setCleanupStage("working"), onSuccess: result => { setCleanupStage("idle"); if (roomId) void loadRoom(false); else setMessages([]); toast.success(`Deleted ${result.deletedMessages} messages and ${result.deletedVoiceFiles} voice files in ${result.batchesProcessed} batches`); }, onError: error => { setCleanupStage("idle"); toast.error(error.message); } });
   const leaveRoom = trpc.chatplay.leaveRoom.useMutation({ onSuccess: () => { setMessages([]); setMembers([]); setActiveGame(null); setRoomId(null); setProfile(current => current ? { ...current, membership_role: undefined } : current); void loadRooms(); toast.success("You left the room"); }, onError: error => toast.error(error.message) });
   const deleteRoom = trpc.chatplay.deleteRoom.useMutation({ onSuccess: () => { setMessages([]); setMembers([]); setActiveGame(null); setRoomId(null); setProfile(current => current ? { ...current, membership_role: undefined } : current); void loadRooms(); toast.success("Room deleted"); }, onError: error => toast.error(error.message) });
@@ -197,19 +199,18 @@ export default function ChatPlay() {
   };
 
   const joinRoom = async (room: Room) => {
-    if (!profile) return;
-    const { error } = await supabase.from("room_members").insert({ room_id: room.id, user_id: profile.id });
-    if (error && !/duplicate/i.test(error.message)) return toast.error(error.message);
-    setMessages([]); setMembers([]); setActiveGame(null); setRoomId(room.id); setSidebarOpen(false);
+    if (room.visibility === "private") {
+      const existing = members.some(member => member.id === profile?.id);
+      if (!existing && room.id !== roomId) return toast.error("This private room requires an invitation");
+      setMessages([]); setMembers([]); setActiveGame(null); setRoomId(room.id); setSidebarOpen(false);
+      return;
+    }
+    await joinPublicRoom.mutateAsync({ roomId: room.id });
   };
 
   const addMember = async (member: Profile) => {
-    if (!roomId || !profile) return;
-    const result = await supabase.from("room_members").insert({ room_id: roomId, user_id: member.id });
-    if (result.error) return toast.error(result.error.message);
-    await supabase.from("notifications").insert({ recipient_id: member.id, actor_id: profile.id, room_id: roomId, kind: "room_invite", title: `Invitation to ${activeRoom?.name ?? "a room"}`, body: `${profile.display_name} invited you to join ${activeRoom?.name ?? "a room"}.`, metadata: { room_id: roomId } });
-    toast.success(`${member.display_name} was invited to ${activeRoom?.name}`);
-    void loadRoom();
+    if (!roomId) return;
+    await inviteRoomMember.mutateAsync({ roomId, inviteeId: member.id });
   };
 
   const saveProfile = async () => {

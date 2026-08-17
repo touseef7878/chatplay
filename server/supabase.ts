@@ -147,6 +147,39 @@ export function isValidRoomInvitation(notification: { recipient_id: string; kind
   return Boolean(notification && notification.recipient_id === recipientId && notification.kind === "room_invite" && notification.room_id);
 }
 
+export function canInviteRoomMember(roomOwnerId: string, callerId: string, inviteeId: string) {
+  return roomOwnerId === callerId && inviteeId !== callerId;
+}
+
+export function canJoinPublicRoom(visibility: string) {
+  return visibility === "public";
+}
+
+export async function joinPublicRoom(openId: string, roomId: string) {
+  const authId = await getSupabaseAuthIdForOpenId(openId);
+  const admin = getSupabaseAdmin();
+  const room = await admin.from("rooms").select("id, visibility").eq("id", roomId).maybeSingle();
+  if (room.error) throw room.error;
+  if (!room.data || !canJoinPublicRoom(room.data.visibility)) throw new Error("This private room requires an invitation");
+  const membership = await admin.from("room_members").upsert({ room_id: roomId, user_id: authId, membership_role: "member" }, { onConflict: "room_id,user_id" });
+  if (membership.error) throw membership.error;
+  return { roomId, joined: true };
+}
+
+export async function inviteRoomMember(openId: string, roomId: string, inviteeId: string) {
+  const authId = await getSupabaseAuthIdForOpenId(openId);
+  const admin = getSupabaseAdmin();
+  const room = await admin.from("rooms").select("id, name, created_by, visibility").eq("id", roomId).maybeSingle();
+  if (room.error) throw room.error;
+  if (!room.data || room.data.visibility !== "private") throw new Error("Only existing private rooms can send invitations");
+  if (!canInviteRoomMember(room.data.created_by, authId, inviteeId)) throw new Error("Only the room owner can invite another member");
+  const membership = await admin.from("room_members").upsert({ room_id: roomId, user_id: inviteeId, membership_role: "member" }, { onConflict: "room_id,user_id" });
+  if (membership.error) throw membership.error;
+  const notification = await admin.from("notifications").insert({ recipient_id: inviteeId, actor_id: authId, room_id: roomId, kind: "room_invite", title: `Invitation to ${room.data.name}`, body: `You were invited to join ${room.data.name}.`, metadata: { room_id: roomId } });
+  if (notification.error) throw notification.error;
+  return { roomId, inviteeId, invited: true };
+}
+
 export async function acceptRoomInvitation(openId: string, notificationId: string) {
   const authId = await getSupabaseAuthIdForOpenId(openId);
   const admin = getSupabaseAdmin();

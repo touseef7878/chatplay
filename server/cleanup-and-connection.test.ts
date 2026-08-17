@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanupBatchCount, isValidRoomInvitation } from "./supabase";
+import { canInviteRoomMember, canJoinPublicRoom, cleanupBatchCount, isValidRoomInvitation } from "./supabase";
 import { connectionBannerState, shouldStickToBottom } from "../client/src/lib/connection-utils";
 
 describe("batched cleanup", () => {
@@ -18,6 +18,21 @@ describe("room invitation acceptance", () => {
     expect(isValidRoomInvitation({ recipient_id: "owner", kind: "room_invite", room_id: "room-1" }, "guest")).toBe(false);
     expect(isValidRoomInvitation({ recipient_id: "guest", kind: "game_invite", room_id: "room-1" }, "guest")).toBe(false);
     expect(isValidRoomInvitation(null, "guest")).toBe(false);
+  });
+});
+
+describe("room invitation authorization", () => {
+  it("allows only the private-room owner to invite another user", () => {
+    expect(canInviteRoomMember("owner", "owner", "guest")).toBe(true);
+    expect(canInviteRoomMember("owner", "admin", "guest")).toBe(false);
+    expect(canInviteRoomMember("owner", "owner", "owner")).toBe(false);
+  });
+});
+
+describe("public room joining", () => {
+  it("allows public rooms only", () => {
+    expect(canJoinPublicRoom("public")).toBe(true);
+    expect(canJoinPublicRoom("private")).toBe(false);
   });
 });
 
