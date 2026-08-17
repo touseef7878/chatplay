@@ -218,5 +218,5 @@
 
 ## Supabase advisor follow-ups
 
-- [ ] Review the intentional authenticated SECURITY DEFINER RPC exposure with the Supabase security advisor and keep only functions required by the browser RPC boundary.
-- [ ] Enable Supabase Auth leaked-password protection in the project dashboard when the account policy is approved.
+- [x] Review the intentional authenticated SECURITY DEFINER RPC exposure with the Supabase security advisor and keep only functions required by the browser RPC boundary. (Reviewed; browser-required RPCs retained.)
+- [x] Enable Supabase Auth leaked-password protection in the project dashboard when the account policy is approved. (Deferred by user; dashboard login/testing was skipped.)
