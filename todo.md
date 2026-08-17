@@ -181,3 +181,10 @@
 - [x] Verify the authenticated active-room composer at narrow and desktop viewports without user takeover. (Authenticated preview verified at desktop width; responsive 390px shell capture verified separately.)
 - [x] Click the camera control and confirm the image picker path remains usable after the layout fix.
 - [x] Save the corrective checkpoint after self-run visual verification.
+
+## GitHub and local-clone readiness audit
+
+- [x] Audit repository structure, tracked assets, secrets handling, and generated files.
+- [x] Ensure README documents installation, environment variables, Supabase setup, migrations, storage, tests, build, and local development.
+- [x] Verify clone-local commands and fix any packaging or documentation gaps.
+- [x] Save an updated checkpoint after the repository audit.

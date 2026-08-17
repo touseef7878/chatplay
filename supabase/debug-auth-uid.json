@@ -1,5 +1,0 @@
-{
-  "project_id": "ixyjuofwrvizydshqudm",
-  "name": "debug_auth_uid",
-  "query": "create or replace function public.debug_auth_uid() returns uuid language sql stable as $$ select auth.uid(); $$; grant execute on function public.debug_auth_uid() to authenticated;"
-}

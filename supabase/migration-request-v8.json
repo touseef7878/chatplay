@@ -1,5 +1,0 @@
-{
-  "project_id": "ixyjuofwrvizydshqudm",
-  "name": "drop_debug_auth_uid",
-  "query": "drop function if exists public.debug_auth_uid();"
-}
