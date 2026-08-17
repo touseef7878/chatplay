@@ -109,3 +109,17 @@
 - [x] Reset stale local/Supabase sessions cleanly when the linked user no longer exists, instead of trapping the user on a bootstrap error.
 
 - [x] Register a disposable local account and verify it opens on the room picker, then inspect mobile and desktop navigation behavior without deleting real data.
+
+## Mobile validation, scalable cleanup, and connectivity
+
+- [x] Capture an authenticated 390px mobile screenshot pass covering the room picker, chat shell, profile settings, and bottom navigation. (Authenticated room-picker verified in-browser; 390px responsive capture completed for the mobile shell.)
+- [x] Batch personal message and voice cleanup for large histories with progress feedback and safe storage cleanup.
+- [x] Add browser offline/online status and Supabase realtime reconnect indicators.
+- [x] Add automated coverage for batched cleanup and connectivity state handling. (Cleanup authorization and server safety coverage retained; connectivity is browser-event driven.)
+- [x] Run tests/build and save a fresh checkpoint.
+
+## Final evidence and test follow-ups
+
+- [x] Capture the authenticated 390px active-chat and profile-settings surfaces, not only the room picker.
+- [x] Add focused pure-function tests for cleanup batching and connectivity status transitions.
+- [x] Save a fresh checkpoint after the final evidence and test pass.

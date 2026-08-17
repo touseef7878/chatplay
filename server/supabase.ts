@@ -99,19 +99,40 @@ async function getSupabaseAuthIdForOpenId(openId: string) {
   return user.supabaseAuthId;
 }
 
+export const CHAT_CLEANUP_BATCH_SIZE = 100;
+
+export function cleanupBatchCount(totalMessages: number, batchSize = CHAT_CLEANUP_BATCH_SIZE) {
+  if (totalMessages <= 0) return 0;
+  return Math.ceil(totalMessages / batchSize);
+}
+
 export async function clearMyChatData(openId: string) {
   const authId = await getSupabaseAuthIdForOpenId(openId);
   const admin = getSupabaseAdmin();
-  const voiceMessages = await admin.from("messages").select("voice_path").eq("sender_id", authId).not("voice_path", "is", null);
-  if (voiceMessages.error) throw voiceMessages.error;
-  const voicePaths = (voiceMessages.data ?? []).map(row => row.voice_path).filter((path): path is string => Boolean(path));
-  const deletedMessages = await admin.from("messages").delete().eq("sender_id", authId).select("id");
-  if (deletedMessages.error) throw deletedMessages.error;
-  if (voicePaths.length) {
-    const removed = await admin.storage.from("voice-messages").remove(voicePaths);
-    if (removed.error) throw removed.error;
+  const batchSize = CHAT_CLEANUP_BATCH_SIZE;
+  let deletedMessages = 0;
+  let deletedVoiceFiles = 0;
+  let batchesProcessed = 0;
+
+  while (true) {
+    const batch = await admin.from("messages").select("id, voice_path").eq("sender_id", authId).order("created_at", { ascending: true }).limit(batchSize);
+    if (batch.error) throw batch.error;
+    const rows = batch.data ?? [];
+    if (!rows.length) break;
+    const ids = rows.map(row => row.id);
+    const voicePaths = rows.map(row => row.voice_path).filter((path): path is string => Boolean(path));
+    if (voicePaths.length) {
+      const removed = await admin.storage.from("voice-messages").remove(voicePaths);
+      if (removed.error) throw removed.error;
+      deletedVoiceFiles += voicePaths.length;
+    }
+    const removedMessages = await admin.from("messages").delete().in("id", ids);
+    if (removedMessages.error) throw removedMessages.error;
+    deletedMessages += ids.length;
+    batchesProcessed += 1;
   }
-  return { deletedMessages: deletedMessages.data?.length ?? 0, deletedVoiceFiles: voicePaths.length };
+
+  return { deletedMessages, deletedVoiceFiles, batchesProcessed, batchSize };
 }
 
 export function canLeaveChatRoom(membershipRole: string) {
