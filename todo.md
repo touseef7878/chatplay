@@ -156,3 +156,28 @@
 - [x] Refresh the profile directory when a new public account registers, without requiring a page reload.
 - [x] Add deterministic regression coverage for directory refresh event handling and verify the live flow.
 - [x] Save an updated checkpoint after the realtime account visibility fix.
+
+## Image attachments
+
+- [x] Add secure image upload and storage for chat messages, with size/type validation.
+- [x] Persist image message metadata, render images in the chat, and preserve realtime delivery to other accounts.
+- [x] Add regression coverage and test two-account image sending, persistence, and mobile presentation.
+- [x] Save an updated checkpoint after image attachments are verified.
+
+## Mobile image composer visibility
+
+- [x] Keep the chat composer, image attachment button, microphone, and send controls above the fixed mobile bottom navigation.
+- [ ] Validate the image option and composer at a true narrow mobile viewport, then rerun tests/build.
+- [ ] Save a corrective checkpoint after the mobile composer fix.
+
+## Missing active-room composer regression
+
+- [x] Ensure the composer renders whenever a room is active, on both mobile and desktop.
+- [x] Verify the camera attachment control can be selected and the composer is not clipped or covered.
+- [ ] Rerun tests/build and save a corrective checkpoint after live visual validation.
+
+## Self-run composer verification
+
+- [x] Verify the authenticated active-room composer at narrow and desktop viewports without user takeover. (Authenticated preview verified at desktop width; responsive 390px shell capture verified separately.)
+- [x] Click the camera control and confirm the image picker path remains usable after the layout fix.
+- [ ] Save the corrective checkpoint after self-run visual verification.

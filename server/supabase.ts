@@ -63,9 +63,10 @@ export async function deleteChatPlayUser(openId: string, actorOpenId: string) {
 
   const admin = getSupabaseAdmin();
   const authId = user.supabaseAuthId;
-  const voiceMessages = await admin.from("messages").select("voice_path").eq("sender_id", authId).not("voice_path", "is", null);
-  if (voiceMessages.error) throw voiceMessages.error;
-  const voicePaths = (voiceMessages.data ?? []).map(row => row.voice_path).filter((path): path is string => Boolean(path));
+  const mediaMessages = await admin.from("messages").select("voice_path, image_path").eq("sender_id", authId);
+  if (mediaMessages.error) throw mediaMessages.error;
+  const voicePaths = (mediaMessages.data ?? []).map(row => row.voice_path).filter((path): path is string => Boolean(path));
+  const imagePaths = (mediaMessages.data ?? []).map(row => row.image_path).filter((path): path is string => Boolean(path));
 
   const cleanupSteps = [
     () => admin.from("notifications").delete().or(`recipient_id.eq.${authId},actor_id.eq.${authId}`),
@@ -80,6 +81,7 @@ export async function deleteChatPlayUser(openId: string, actorOpenId: string) {
     if (result.error) throw result.error;
   }
   if (voicePaths.length) await admin.storage.from("voice-messages").remove(voicePaths);
+  if (imagePaths.length) await admin.storage.from("chat-images").remove(imagePaths);
 
   const avatarFiles = await admin.storage.from("avatars").list(authId, { limit: 1000 });
   if (!avatarFiles.error && avatarFiles.data?.length) {
@@ -112,19 +114,26 @@ export async function clearMyChatData(openId: string) {
   const batchSize = CHAT_CLEANUP_BATCH_SIZE;
   let deletedMessages = 0;
   let deletedVoiceFiles = 0;
+  let deletedImageFiles = 0;
   let batchesProcessed = 0;
 
   while (true) {
-    const batch = await admin.from("messages").select("id, voice_path").eq("sender_id", authId).order("created_at", { ascending: true }).limit(batchSize);
+    const batch = await admin.from("messages").select("id, voice_path, image_path").eq("sender_id", authId).order("created_at", { ascending: true }).limit(batchSize);
     if (batch.error) throw batch.error;
     const rows = batch.data ?? [];
     if (!rows.length) break;
     const ids = rows.map(row => row.id);
     const voicePaths = rows.map(row => row.voice_path).filter((path): path is string => Boolean(path));
+    const imagePaths = rows.map(row => row.image_path).filter((path): path is string => Boolean(path));
     if (voicePaths.length) {
       const removed = await admin.storage.from("voice-messages").remove(voicePaths);
       if (removed.error) throw removed.error;
       deletedVoiceFiles += voicePaths.length;
+    }
+    if (imagePaths.length) {
+      const removed = await admin.storage.from("chat-images").remove(imagePaths);
+      if (removed.error) throw removed.error;
+      deletedImageFiles += imagePaths.length;
     }
     const removedMessages = await admin.from("messages").delete().in("id", ids);
     if (removedMessages.error) throw removedMessages.error;
@@ -132,7 +141,7 @@ export async function clearMyChatData(openId: string) {
     batchesProcessed += 1;
   }
 
-  return { deletedMessages, deletedVoiceFiles, batchesProcessed, batchSize };
+  return { deletedMessages, deletedVoiceFiles, deletedImageFiles, batchesProcessed, batchSize };
 }
 
 export function canLeaveChatRoom(membershipRole: string) {

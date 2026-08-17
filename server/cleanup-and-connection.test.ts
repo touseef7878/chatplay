@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canInviteRoomMember, canJoinPublicRoom, cleanupBatchCount, isValidRoomInvitation } from "./supabase";
 import { connectionBannerState, shouldRefreshDirectory, shouldStickToBottom } from "../client/src/lib/connection-utils";
+import { CHAT_IMAGE_MAX_BYTES, isSupportedChatImage } from "../client/src/lib/media-utils";
 
 describe("batched cleanup", () => {
   it("calculates bounded cleanup batches", () => {
@@ -9,6 +10,18 @@ describe("batched cleanup", () => {
     expect(cleanupBatchCount(100)).toBe(1);
     expect(cleanupBatchCount(101)).toBe(2);
     expect(cleanupBatchCount(250, 50)).toBe(5);
+  });
+});
+
+describe("image attachments", () => {
+  it("accepts supported images within the size limit", () => {
+    expect(isSupportedChatImage({ type: "image/jpeg", size: 1024 })).toBe(true);
+    expect(isSupportedChatImage({ type: "image/webp", size: CHAT_IMAGE_MAX_BYTES })).toBe(true);
+  });
+
+  it("rejects unsupported types and oversized files", () => {
+    expect(isSupportedChatImage({ type: "application/pdf", size: 1024 })).toBe(false);
+    expect(isSupportedChatImage({ type: "image/png", size: CHAT_IMAGE_MAX_BYTES + 1 })).toBe(false);
   });
 });
 

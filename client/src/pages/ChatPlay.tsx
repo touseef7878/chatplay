@@ -9,6 +9,7 @@ import { trpc } from "@/lib/trpc";
 import { findTicTacToeWinner, GameKind, shuffledWord, TRIVIA_QUESTIONS } from "@/lib/game-utils";
 import { supabase } from "@/lib/supabase";
 import { connectionBannerState, DIRECTORY_REFRESH_INTERVAL_MS, shouldStickToBottom } from "@/lib/connection-utils";
+import { CHAT_IMAGE_MAX_BYTES, isSupportedChatImage } from "@/lib/media-utils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, Camera, Check, CirclePlus, Crown, Gamepad2, LayoutGrid, LoaderCircle, LogOut, Menu, Mic, Moon, Paperclip, Play, Send, ShieldCheck, Sparkles, Sun, Trophy, Trash2, Upload, Users, WifiOff, X } from "lucide-react";
@@ -19,7 +20,7 @@ type Room = { id: string; name: string; description: string; visibility: string;
 type Profile = { id: string; display_name: string; avatar_seed: string; avatar_url?: string | null; membership_role?: "owner" | "admin" | "member" };
 type DeveloperUser = { openId: string; username: string | null; supabaseAuthId: string | null; name: string | null; email: string | null; role: "user" | "admin"; createdAt: Date; lastSignedIn: Date };
 type AuditEntry = { id: number; actorOpenId: string; targetOpenId: string; targetUsername: string | null; targetSupabaseAuthId: string | null; action: string; createdAt: Date };
-type ChatMessage = { id: string; room_id: string; sender_id: string; kind: string; body: string | null; voice_path: string | null; duration_seconds: number | null; metadata: any; created_at: string; profiles?: Profile; message_reactions?: Array<{ emoji: string; user_id: string }> };
+type ChatMessage = { id: string; room_id: string; sender_id: string; kind: string; body: string | null; voice_path: string | null; image_path: string | null; duration_seconds: number | null; metadata: any; created_at: string; profiles?: Profile; message_reactions?: Array<{ emoji: string; user_id: string }> };
 type Game = { id: string; room_id: string; host_id: string; game_type: GameKind; status: string; state: any; winner_id: string | null };
 
 const EMOJIS = ["🔥", "😂", "👏", "💚"];
@@ -42,6 +43,7 @@ export default function ChatPlay() {
   const [directory, setDirectory] = useState<Profile[]>([]);
   const [online, setOnline] = useState<Profile[]>([]);
   const [draft, setDraft] = useState("");
+  const [imageSending, setImageSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newRoom, setNewRoom] = useState({ name: "", description: "", visibility: "public" });
   const [newRoomOpen, setNewRoomOpen] = useState(false);
@@ -64,6 +66,7 @@ export default function ChatPlay() {
   const recorder = useRef<MediaRecorder | null>(null);
   const voiceStart = useRef(0);
   const chatViewportRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const didBootstrap = useRef(false);
 
   const activeRoom = rooms.find(room => room.id === roomId) ?? null;
@@ -261,10 +264,32 @@ export default function ChatPlay() {
   const sendText = async () => {
     if (!profile || !roomId || !draft.trim()) return;
     const body = draft.trim(); setDraft("");
-    const optimistic: ChatMessage = { id: `optimistic-${Date.now()}`, room_id: roomId, sender_id: profile.id, kind: "text", body, voice_path: null, duration_seconds: null, metadata: {}, created_at: new Date().toISOString(), profiles: profile, message_reactions: [] };
+    const optimistic: ChatMessage = { id: `optimistic-${Date.now()}`, room_id: roomId, sender_id: profile.id, kind: "text", body, voice_path: null, image_path: null, duration_seconds: null, metadata: {}, created_at: new Date().toISOString(), profiles: profile, message_reactions: [] };
     setMessages(current => [...current, optimistic]);
     const { error } = await supabase.from("messages").insert({ room_id: roomId, sender_id: profile.id, kind: "text", body });
     if (error) { setMessages(current => current.filter(message => message.id !== optimistic.id)); toast.error(error.message); } else void loadRoom();
+  };
+
+  const sendImage = async (file: File) => {
+    if (!profile || !roomId) return;
+    if (!isSupportedChatImage(file)) return toast.error(`Choose a PNG, JPEG, WebP, or GIF image up to ${Math.round(CHAT_IMAGE_MAX_BYTES / 1024 / 1024)} MB`);
+    setImageSending(true);
+    const extension = file.type.split("/")[1] === "jpeg" ? "jpg" : file.type.split("/")[1];
+    const path = `${roomId}/${profile.id}/${crypto.randomUUID()}.${extension}`;
+    try {
+      const upload = await supabase.storage.from("chat-images").upload(path, file, { contentType: file.type, upsert: false });
+      if (upload.error) return toast.error(upload.error.message);
+      const message = await supabase.from("messages").insert({ room_id: roomId, sender_id: profile.id, kind: "image", image_path: path, metadata: { file_name: file.name, mime_type: file.type, size: file.size } });
+      if (message.error) {
+        await supabase.storage.from("chat-images").remove([path]);
+        return toast.error(message.error.message);
+      }
+      toast.success("Image sent");
+      void loadRoom();
+    } finally {
+      setImageSending(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
   };
 
   const react = async (messageId: string, emoji: string) => {
@@ -364,12 +389,13 @@ export default function ChatPlay() {
 
   const reactionsFor = (message: ChatMessage, emoji: string) => message.message_reactions?.filter(reaction => reaction.emoji === emoji).length ?? 0;
   const signedAudio = (path: string) => supabase.storage.from("voice-messages").createSignedUrl(path, 3600).then(result => result.data?.signedUrl ?? "");
+  const signedImage = (path: string) => supabase.storage.from("chat-images").createSignedUrl(path, 3600).then(result => result.data?.signedUrl ?? "");
 
   if (loading || (isAuthenticated && pending)) return <div className="grid min-h-screen place-items-center bg-[#0d1117] text-slate-300"><Sparkles className="size-7 animate-pulse text-teal-300" /></div>;
   if (!isAuthenticated || user?.loginMethod !== "password") return <Landing />;
 
   return <div className="min-h-screen bg-[#0d1117] pb-20 text-slate-100 selection:bg-teal-300/25 lg:pb-0">
-    <div className="mx-auto flex min-h-screen max-w-[1700px] overflow-hidden lg:h-screen lg:min-h-0 lg:p-4">
+    <div className="mx-auto flex h-[calc(100dvh-4rem)] min-h-0 max-w-[1700px] overflow-hidden lg:h-screen lg:min-h-0 lg:p-4">
       <aside aria-label="Room navigation" className={`fixed inset-y-0 left-0 z-40 flex w-[295px] flex-col border-r border-white/5 bg-[#101720] p-4 shadow-2xl transition-transform lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:translate-x-0 lg:rounded-[28px] ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="mb-7 flex items-center justify-between px-2"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-2xl bg-teal-300 text-[#0b2427]"><Gamepad2 className="size-5" /></div><div><p className="font-semibold tracking-tight">ChatPlay</p><p className="text-xs text-teal-200/60">where rooms come alive</p></div></div><button aria-label="Close room navigation" onClick={() => setSidebarOpen(false)} className="lg:hidden"><X className="size-5" /></button></div>
         <Button onClick={() => setNewRoomOpen(true)} className="mb-5 h-11 rounded-xl bg-teal-300 font-semibold text-[#082426] hover:bg-teal-200"><CirclePlus className="mr-2 size-4" />Create a room</Button>
@@ -378,12 +404,12 @@ export default function ChatPlay() {
         <div className="mt-4 flex items-center gap-3 rounded-2xl bg-white/[0.035] p-3"><button aria-label="Edit profile" onClick={() => setProfileOpen(true)} className="shrink-0"><Avatar className="size-9"><AvatarImage src={profile?.avatar_url ?? undefined} alt="" /><AvatarFallback style={{ background: identicon(profile?.avatar_seed ?? user?.openId ?? "guest") }} className="text-xs font-bold text-white">{initials(profile?.display_name ?? user?.name ?? "U")}</AvatarFallback></Avatar></button><button onClick={() => setProfileOpen(true)} className="min-w-0 flex-1 text-left"><p className="truncate text-sm font-medium">{profile?.display_name ?? user?.name}</p><p className="text-xs text-emerald-300"><span className="mr-1 inline-block size-1.5 rounded-full bg-emerald-300" />{profile?.membership_role === "owner" ? "room owner" : "online"}</p></button>{isDeveloper && <button aria-label="Open developer account management" onClick={() => setDeveloperOpen(true)} className="text-slate-500 hover:text-teal-200"><ShieldCheck className="size-4" /></button>}<button aria-label="Log out" onClick={() => void logout()} className="text-slate-500 hover:text-slate-200"><LogOut className="size-4" /></button></div>
       </aside>
       {sidebarOpen && <button aria-label="Close room navigation" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-30 bg-black/55 lg:hidden" />}
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col lg:ml-4 lg:h-[calc(100vh-2rem)] lg:overflow-hidden lg:rounded-[28px] lg:border lg:border-white/5 lg:bg-[#121922]">
+      <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col lg:ml-4 lg:h-[calc(100vh-2rem)] lg:overflow-hidden lg:rounded-[28px] lg:border lg:border-white/5 lg:bg-[#121922]">
         <header className="sticky top-0 z-20 flex h-[68px] shrink-0 items-center justify-between border-b border-white/5 bg-[#121922]/95 px-3 backdrop-blur sm:h-[76px] sm:px-6"><div className="flex min-w-0 items-center gap-3"><button aria-label="Open room navigation" onClick={() => setSidebarOpen(true)} className="lg:hidden"><Menu className="size-5" /></button><div className="grid size-10 place-items-center rounded-2xl bg-slate-800 text-sm font-bold">{activeRoom ? initials(activeRoom.name) : "CP"}</div><div className="min-w-0"><h1 className="truncate font-semibold">{activeRoom?.name ?? "Choose a room"}</h1><p className="truncate text-xs text-slate-500">{online.length || members.length} people around</p></div></div><div className="flex items-center gap-2"><button aria-label="Open invitations and alerts" onClick={() => setAlertsOpen(value => !value)} className="relative grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200"><Bell className="size-4" />{alerts.some(alert => !alert.read_at) && <span className="absolute right-1 top-1 size-2 rounded-full bg-rose-300" />}</button><button aria-label="Manage room members" onClick={() => setMembersOpen(true)} disabled={!activeRoom} className="grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200"><Users className="size-4" /></button><button aria-label="Toggle color theme" onClick={toggleTheme} className="grid size-9 place-items-center rounded-xl text-slate-400 hover:bg-white/5 hover:text-teal-200">{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</button><Button onClick={() => setGameOpen(true)} disabled={!activeRoom} className="rounded-xl bg-teal-300 px-3 text-[#082426] hover:bg-teal-200"><Gamepad2 className="mr-2 size-4" /><span className="hidden sm:inline">Play</span></Button></div></header>
         {connectionState !== "hidden" && <div className={`flex items-center gap-2 border-b px-4 py-2 text-xs ${connectionState === "offline" ? "border-rose-300/20 bg-rose-300/10 text-rose-100" : "border-amber-300/20 bg-amber-300/10 text-amber-100"}`}><div className="flex items-center gap-2">{connectionState === "offline" ? <WifiOff className="size-3.5 shrink-0" /> : <LoaderCircle className="size-3.5 shrink-0 animate-spin" />}<span>{connectionState === "offline" ? "You are offline. Messages will resume when you reconnect." : "Reconnecting to live room updates…"}</span></div></div>}
-        {activeRoom ? <div className="relative flex min-h-0 flex-1 flex-col"><ScrollArea viewportRef={chatViewportRef} className="min-h-0 flex-1"><div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 px-3 py-4 pb-6 sm:px-7 sm:py-6">{messages.map(message => <MessageBubble key={message.id} message={message} mine={message.sender_id === profile?.id} onReact={react} reactionCount={reactionsFor} onJoinGame={joinGame} audioUrl={message.voice_path ? signedAudio(message.voice_path) : undefined} />)}</div></ScrollArea>
+        {activeRoom ? <div className="relative flex min-h-0 flex-1 flex-col"><ScrollArea viewportRef={chatViewportRef} className="min-h-0 flex-1"><div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4 px-3 py-4 pb-28 sm:px-7 sm:py-6 sm:pb-32 lg:pb-6">{messages.map(message => <MessageBubble key={message.id} message={message} mine={message.sender_id === profile?.id} onReact={react} reactionCount={reactionsFor} onJoinGame={joinGame} audioUrl={message.voice_path ? signedAudio(message.voice_path) : undefined} imageUrl={message.image_path ? signedImage(message.image_path) : undefined} />)}</div></ScrollArea>
           {activeGame && <GamePanel game={activeGame} profile={profile} members={members} answer={gameAnswer} setAnswer={setGameAnswer} onJoin={joinGame} onTic={playTic} onAnswer={answerGame} onFinishTrivia={finishTrivia} />}
-          <div className="shrink-0 border-t border-white/5 bg-[#101720]/95 p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4"><div className="mx-auto flex max-w-4xl items-end gap-2"><button aria-label="Attachment options" className="hidden size-10 place-items-center rounded-xl text-slate-500 hover:bg-white/5 sm:grid"><Paperclip className="size-4" /></button><Textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendText(); } }} placeholder={`Message #${activeRoom.name}`} className="min-h-11 max-h-28 resize-none rounded-2xl border-white/5 bg-white/[0.04] px-4 py-3 text-sm placeholder:text-slate-600 focus-visible:ring-teal-300/50" rows={1} /><Button aria-label={recording ? "Finish and send voice message" : "Record voice message"} onClick={toggleRecord} className={`grid size-11 shrink-0 place-items-center rounded-2xl ${recording ? "bg-rose-400 text-white hover:bg-rose-300" : "bg-white/[0.05] text-slate-400 hover:bg-white/10"}`}><Mic className={`size-4 ${recording ? "animate-pulse" : ""}`} /></Button><Button aria-label="Send message" onClick={() => void sendText()} className="grid size-11 shrink-0 place-items-center rounded-2xl bg-teal-300 text-[#082426] hover:bg-teal-200"><Send className="size-4" /></Button></div></div>
+          <div className="fixed inset-x-0 bottom-16 z-20 shrink-0 border-t border-white/5 bg-[#101720]/95 p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] shadow-[0_-10px_30px_rgba(0,0,0,.22)] backdrop-blur sm:p-4 lg:static lg:z-auto lg:shadow-none"><div className="mx-auto flex max-w-4xl items-end gap-2"><input ref={imageInputRef} aria-label="Choose an image file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="absolute size-1 opacity-0" onChange={event => { const file = event.target.files?.[0]; if (file) void sendImage(file); }} /><button type="button" aria-label="Attach an image" disabled={imageSending} onClick={() => imageInputRef.current?.click()} className="grid size-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-white/5 disabled:opacity-40"><Camera className="size-4" /></button><Textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendText(); } }} placeholder={`Message #${activeRoom.name}`} className="min-h-11 max-h-28 resize-none rounded-2xl border-white/5 bg-white/[0.04] px-4 py-3 text-sm placeholder:text-slate-600 focus-visible:ring-teal-300/50" rows={1} /><Button aria-label={recording ? "Finish and send voice message" : "Record voice message"} disabled={imageSending} onClick={toggleRecord} className={`grid size-11 shrink-0 place-items-center rounded-2xl ${recording ? "bg-rose-400 text-white hover:bg-rose-300" : "bg-white/[0.05] text-slate-400 hover:bg-white/10"}`}><Mic className={`size-4 ${recording ? "animate-pulse" : ""}`} /></Button><Button aria-label="Send message" disabled={imageSending} onClick={() => void sendText()} className="grid size-11 shrink-0 place-items-center rounded-2xl bg-teal-300 text-[#082426] hover:bg-teal-200"><Send className="size-4" /></Button></div></div>
         </div> : <EmptyRooms hasRooms={rooms.length > 0} onBrowse={() => setSidebarOpen(true)} onCreate={() => setNewRoomOpen(true)} />}
       </main>
     </div>
@@ -402,9 +428,9 @@ export default function ChatPlay() {
   </div>;
 }
 
-function MessageBubble({ message, mine, onReact, reactionCount, onJoinGame, audioUrl }: { message: ChatMessage; mine: boolean; onReact: (id: string, emoji: string) => void; reactionCount: (message: ChatMessage, emoji: string) => number; onJoinGame: () => void; audioUrl?: Promise<string> }) {
-  const [url, setUrl] = useState(""); useEffect(() => { void audioUrl?.then(setUrl); }, [audioUrl]);
-  return <motion.div initial={{ opacity: 0, y: 10, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={spring} className={`group flex gap-2 ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[84%] ${mine ? "order-2" : ""}`}><div className={`rounded-2xl px-4 py-3 ${mine ? "rounded-br-md bg-teal-300 text-[#092528]" : "rounded-bl-md bg-white/[0.06] text-slate-100"}`}><div className="mb-1 flex items-center gap-2"><span className={`text-xs font-semibold ${mine ? "text-[#145c5c]" : "text-teal-200"}`}>{mine ? "You" : message.profiles?.display_name ?? "Member"}</span>{message.kind.includes("game") && <span className="rounded-full bg-black/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">game</span>}</div>{message.kind === "game_invite" ? <div className="rounded-xl border border-current/15 bg-black/10 p-3"><p className="text-sm font-semibold">{message.body}</p><p className="mt-1 text-xs opacity-70">Ready to play? Join the live game in this room.</p><Button onClick={onJoinGame} className="mt-3 h-8 rounded-lg bg-[#082426] px-3 text-xs text-teal-100 hover:bg-[#0e3a3d]">Join game</Button></div> : message.kind === "voice" && url ? <audio controls src={url} className="h-8 max-w-full" /> : <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.body}</p>}<p className={`mt-1 text-[10px] ${mine ? "text-[#15595a]" : "text-slate-500"}`}>{time(message.created_at)} {mine && <Check className="ml-1 inline size-3" />}</p></div><div className="mt-1 flex flex-wrap gap-1 opacity-0 transition group-hover:opacity-100">{EMOJIS.map(emoji => <button onClick={() => onReact(message.id, emoji)} key={emoji} className="rounded-lg bg-white/[0.05] px-1.5 py-0.5 text-xs hover:bg-white/10">{emoji}{reactionCount(message, emoji) ? <span className="ml-1 text-[10px] text-slate-400">{reactionCount(message, emoji)}</span> : null}</button>)}</div></div></motion.div>;
+function MessageBubble({ message, mine, onReact, reactionCount, onJoinGame, audioUrl, imageUrl }: { message: ChatMessage; mine: boolean; onReact: (id: string, emoji: string) => void; reactionCount: (message: ChatMessage, emoji: string) => number; onJoinGame: () => void; audioUrl?: Promise<string>; imageUrl?: Promise<string> }) {
+  const [url, setUrl] = useState(""); const [imageSrc, setImageSrc] = useState(""); useEffect(() => { void audioUrl?.then(setUrl); void imageUrl?.then(setImageSrc); }, [audioUrl, imageUrl]);
+  return <motion.div initial={{ opacity: 0, y: 10, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={spring} className={`group flex gap-2 ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[84%] ${mine ? "order-2" : ""}`}><div className={`rounded-2xl px-4 py-3 ${mine ? "rounded-br-md bg-teal-300 text-[#092528]" : "rounded-bl-md bg-white/[0.06] text-slate-100"}`}><div className="mb-1 flex items-center gap-2"><span className={`text-xs font-semibold ${mine ? "text-[#145c5c]" : "text-teal-200"}`}>{mine ? "You" : message.profiles?.display_name ?? "Member"}</span>{message.kind.includes("game") && <span className="rounded-full bg-black/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">game</span>}</div>{message.kind === "game_invite" ? <div className="rounded-xl border border-current/15 bg-black/10 p-3"><p className="text-sm font-semibold">{message.body}</p><p className="mt-1 text-xs opacity-70">Ready to play? Join the live game in this room.</p><Button onClick={onJoinGame} className="mt-3 h-8 rounded-lg bg-[#082426] px-3 text-xs text-teal-100 hover:bg-[#0e3a3d]">Join game</Button></div> : message.kind === "voice" && url ? <audio controls src={url} className="h-8 max-w-full" /> : message.kind === "image" && imageSrc ? <a href={imageSrc} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl"><img src={imageSrc} alt={message.metadata?.file_name ?? "Shared image"} loading="lazy" className="max-h-[min(60vh,420px)] w-auto max-w-full rounded-xl object-contain" /></a> : <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.body}</p>}<p className={`mt-1 text-[10px] ${mine ? "text-[#15595a]" : "text-slate-500"}`}>{time(message.created_at)} {mine && <Check className="ml-1 inline size-3" />}</p></div><div className="mt-1 flex flex-wrap gap-1 opacity-0 transition group-hover:opacity-100">{EMOJIS.map(emoji => <button onClick={() => onReact(message.id, emoji)} key={emoji} className="rounded-lg bg-white/[0.05] px-1.5 py-0.5 text-xs hover:bg-white/10">{emoji}{reactionCount(message, emoji) ? <span className="ml-1 text-[10px] text-slate-400">{reactionCount(message, emoji)}</span> : null}</button>)}</div></div></motion.div>;
 }
 
 function GamePanel({ game, profile, members, answer, setAnswer, onJoin, onTic, onAnswer, onFinishTrivia }: any) {
