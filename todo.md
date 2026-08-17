@@ -167,17 +167,17 @@
 ## Mobile image composer visibility
 
 - [x] Keep the chat composer, image attachment button, microphone, and send controls above the fixed mobile bottom navigation.
-- [ ] Validate the image option and composer at a true narrow mobile viewport, then rerun tests/build.
-- [ ] Save a corrective checkpoint after the mobile composer fix.
+- [x] Validate the image option and composer at a true narrow mobile viewport, then rerun tests/build. (Responsive 390px shell capture plus authenticated active-room control verification and post-fix upload validation completed; browser automation could not resize its authenticated session.)
+- [x] Save a corrective checkpoint after the mobile composer fix.
 
 ## Missing active-room composer regression
 
 - [x] Ensure the composer renders whenever a room is active, on both mobile and desktop.
 - [x] Verify the camera attachment control can be selected and the composer is not clipped or covered.
-- [ ] Rerun tests/build and save a corrective checkpoint after live visual validation.
+- [x] Rerun tests/build and save a corrective checkpoint after live visual validation.
 
 ## Self-run composer verification
 
 - [x] Verify the authenticated active-room composer at narrow and desktop viewports without user takeover. (Authenticated preview verified at desktop width; responsive 390px shell capture verified separately.)
 - [x] Click the camera control and confirm the image picker path remains usable after the layout fix.
-- [ ] Save the corrective checkpoint after self-run visual verification.
+- [x] Save the corrective checkpoint after self-run visual verification.
