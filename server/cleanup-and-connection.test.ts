@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canInviteRoomMember, canJoinPublicRoom, cleanupBatchCount, isValidRoomInvitation } from "./supabase";
-import { connectionBannerState, shouldStickToBottom } from "../client/src/lib/connection-utils";
+import { connectionBannerState, shouldRefreshDirectory, shouldStickToBottom } from "../client/src/lib/connection-utils";
 
 describe("batched cleanup", () => {
   it("calculates bounded cleanup batches", () => {
@@ -26,6 +26,13 @@ describe("room invitation authorization", () => {
     expect(canInviteRoomMember("owner", "owner", "guest")).toBe(true);
     expect(canInviteRoomMember("owner", "admin", "guest")).toBe(false);
     expect(canInviteRoomMember("owner", "owner", "owner")).toBe(false);
+  });
+});
+
+describe("realtime account directory", () => {
+  it("refreshes after the configured interval without refreshing early", () => {
+    expect(shouldRefreshDirectory(1000, 3999, 3000)).toBe(false);
+    expect(shouldRefreshDirectory(1000, 4000, 3000)).toBe(true);
   });
 });
 

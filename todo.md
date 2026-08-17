@@ -150,3 +150,9 @@
 - [x] Trace and fix the `room_members` RLS failure when accepting a private-room invitation.
 - [x] Add regression coverage for secure invitation acceptance and rerun the 390px mobile flow.
 - [x] Save a final checkpoint after the invitation fix and mobile validation.
+
+## Realtime account-directory visibility
+
+- [x] Refresh the profile directory when a new public account registers, without requiring a page reload.
+- [x] Add deterministic regression coverage for directory refresh event handling and verify the live flow.
+- [x] Save an updated checkpoint after the realtime account visibility fix.

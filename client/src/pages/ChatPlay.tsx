@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { trpc } from "@/lib/trpc";
 import { findTicTacToeWinner, GameKind, shuffledWord, TRIVIA_QUESTIONS } from "@/lib/game-utils";
 import { supabase } from "@/lib/supabase";
-import { connectionBannerState, shouldStickToBottom } from "@/lib/connection-utils";
+import { connectionBannerState, DIRECTORY_REFRESH_INTERVAL_MS, shouldStickToBottom } from "@/lib/connection-utils";
 import { useTheme } from "@/contexts/ThemeContext";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, Camera, Check, CirclePlus, Crown, Gamepad2, LayoutGrid, LoaderCircle, LogOut, Menu, Mic, Moon, Paperclip, Play, Send, ShieldCheck, Sparkles, Sun, Trophy, Trash2, Upload, Users, WifiOff, X } from "lucide-react";
@@ -145,6 +145,18 @@ export default function ChatPlay() {
     return () => { void supabase.removeChannel(channel); };
   }, [bridgeReady, profile?.id]);
 
+  const loadDirectory = async () => {
+    const profileDirectory = await supabase.from("profiles").select("id, display_name, avatar_seed, avatar_url").order("display_name");
+    if (!profileDirectory.error) setDirectory((profileDirectory.data ?? []) as Profile[]);
+  };
+
+  useEffect(() => {
+    if (!bridgeReady) return;
+    void loadDirectory();
+    const refreshTimer = window.setInterval(() => void loadDirectory(), DIRECTORY_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(refreshTimer);
+  }, [bridgeReady]);
+
   const loadRoom = async (includeDirectory = true) => {
     if (!roomId) return;
     const [messageResult, memberResult, sessionResult] = await Promise.all([
@@ -155,10 +167,7 @@ export default function ChatPlay() {
     if (messageResult.error) toast.error(messageResult.error.message); else setMessages((messageResult.data ?? []) as unknown as ChatMessage[]);
     const roomProfiles = (memberResult.data ?? []).map((row: any) => row.profiles ? { ...row.profiles, membership_role: row.membership_role } : null).filter(Boolean) as Profile[];
     setMembers(roomProfiles);
-    if (includeDirectory) {
-      const profileDirectory = await supabase.from("profiles").select("id, display_name, avatar_seed, avatar_url").order("display_name");
-      if (!profileDirectory.error) setDirectory((profileDirectory.data ?? []) as Profile[]);
-    }
+    if (includeDirectory) void loadDirectory();
     setActiveGame((sessionResult.data?.[0] ?? null) as Game | null);
     const currentProfile = roomProfiles.find(member => member.id === profile?.id) ?? null;
     if (currentProfile) { setProfile(currentProfile); setProfileForm({ displayName: currentProfile.display_name, avatarUrl: currentProfile.avatar_url ?? "" }); }
