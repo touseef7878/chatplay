@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
+import { canDeleteChatRoom, canLeaveChatRoom } from "./supabase";
 import type { TrpcContext } from "./_core/context";
 
 function createDeveloperContext(openId: string): TrpcContext {
@@ -32,5 +33,25 @@ describe("developer account deletion", () => {
     const caller = appRouter.createCaller(createDeveloperContext("another-admin"));
 
     await expect(caller.developer.deleteUser({ openId: "target-user" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("ChatPlay cleanup authorization", () => {
+  it("allows only the owner to delete a room", () => {
+    expect(canDeleteChatRoom("owner-id", "owner-id")).toBe(true);
+    expect(canDeleteChatRoom("owner-id", "member-id")).toBe(false);
+  });
+
+  it("prevents owners from leaving their own room", () => {
+    expect(canLeaveChatRoom("owner")).toBe(false);
+    expect(canLeaveChatRoom("admin")).toBe(true);
+    expect(canLeaveChatRoom("member")).toBe(true);
+  });
+  it("rejects unauthenticated cleanup and room lifecycle calls", async () => {
+    const caller = appRouter.createCaller({ user: null, req: { protocol: "https", headers: {} } as TrpcContext["req"], res: {} as TrpcContext["res"] });
+
+    await expect(caller.chatplay.clearMyData()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.chatplay.leaveRoom({ roomId: "00000000-0000-0000-0000-000000000000" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(caller.chatplay.deleteRoom({ roomId: "00000000-0000-0000-0000-000000000000" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });

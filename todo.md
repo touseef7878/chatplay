@@ -75,3 +75,37 @@
 - [x] Complete a narrow-screen pass for authenticated room, alerts, profile, members, game launcher, and game-panel states, fixing any action-row overflow.
 - [x] Reduce initial-load cost with practical code-splitting or lazy loading and re-check bootstrap latency.
 - [x] Save a fresh checkpoint after the verification follow-ups are complete.
+
+## Supabase deletion failure
+
+- [x] Diagnose the exact Supabase Auth deletion constraint or cleanup trigger causing the database error.
+- [x] Fix the user-linked foreign keys or cleanup ordering without weakening row-level security.
+- [x] Validate deletion of a non-owner test account and preserve owner-account protection. (Live cascade constraints verified; no real account was deleted during diagnosis.)
+- [x] Save a corrective checkpoint and document the root cause.
+
+## Supabase deletion controls and trigger repair
+
+- [x] Fix the `notifications` update trigger so Auth/profile deletion can null `actor_id` without referencing a missing `updated_at` column.
+- [x] Verify profile deletion cascades through notifications and other ChatPlay dependencies.
+- [x] Keep developer user deletion available to the owner while rejecting unsafe arbitrary-table schema deletion.
+- [x] Save a corrective checkpoint and document the Supabase dashboard limitation and repair.
+
+## WhatsApp-style navigation and data settings
+
+- [x] Make new and mobile users land on a home/room-picker screen without auto-entering a room after registration or login.
+- [x] Keep the laptop room sidebar fixed on the left while the chat pane scrolls independently.
+- [x] Add profile settings for deleting the current user’s messages and voice files with backend cleanup.
+- [x] Add room leave and owner-only room deletion actions with correct membership and cascade behavior.
+- [x] Add confirmations, empty states, error handling, and automated authorization coverage for cleanup actions.
+- [x] Run responsive/browser validation and save an updated checkpoint.
+
+## Final cleanup validation follow-ups
+
+- [x] Reload the current room after personal message/voice cleanup instead of blanking the entire thread.
+- [x] Remove room-scoped voice storage objects before deleting a room record.
+- [x] Add focused tests for owner-cannot-leave and non-owner-cannot-delete room authorization.
+- [x] Explicitly validate home-first login behavior and the fixed desktop sidebar, then save a fresh checkpoint.
+
+- [x] Reset stale local/Supabase sessions cleanly when the linked user no longer exists, instead of trapping the user on a bootstrap error.
+
+- [x] Register a disposable local account and verify it opens on the room picker, then inspect mobile and desktop navigation behavior without deleting real data.

@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
-import { deleteChatPlayUser, createLinkedSupabaseSession, loginLocalAccount, registerLocalAccount } from "./supabase";
+import { clearMyChatData, createLinkedSupabaseSession, deleteChatPlayUser, deleteChatRoom, leaveChatRoom, loginLocalAccount, registerLocalAccount } from "./supabase";
 import { listDeveloperAuditEntries, listUsersForDeveloper } from "./db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -54,6 +54,9 @@ export const appRouter = router({
 
   chatplay: router({
     bootstrap: protectedProcedure.mutation(async ({ ctx }) => createLinkedSupabaseSession(ctx.user)),
+    clearMyData: protectedProcedure.mutation(({ ctx }) => clearMyChatData(ctx.user.openId)),
+    leaveRoom: protectedProcedure.input(z.object({ roomId: z.string().uuid() })).mutation(({ ctx, input }) => leaveChatRoom(ctx.user.openId, input.roomId)),
+    deleteRoom: protectedProcedure.input(z.object({ roomId: z.string().uuid() })).mutation(({ ctx, input }) => deleteChatRoom(ctx.user.openId, input.roomId)),
   }),
 
   // TODO: add feature routers here, e.g.

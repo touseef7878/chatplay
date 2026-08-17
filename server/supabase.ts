@@ -93,6 +93,66 @@ export async function deleteChatPlayUser(openId: string, actorOpenId: string) {
   return { deletedOpenId: openId };
 }
 
+async function getSupabaseAuthIdForOpenId(openId: string) {
+  const user = await getUserByOpenId(openId);
+  if (!user?.supabaseAuthId) throw new Error("Your secure chat profile is not ready yet");
+  return user.supabaseAuthId;
+}
+
+export async function clearMyChatData(openId: string) {
+  const authId = await getSupabaseAuthIdForOpenId(openId);
+  const admin = getSupabaseAdmin();
+  const voiceMessages = await admin.from("messages").select("voice_path").eq("sender_id", authId).not("voice_path", "is", null);
+  if (voiceMessages.error) throw voiceMessages.error;
+  const voicePaths = (voiceMessages.data ?? []).map(row => row.voice_path).filter((path): path is string => Boolean(path));
+  const deletedMessages = await admin.from("messages").delete().eq("sender_id", authId).select("id");
+  if (deletedMessages.error) throw deletedMessages.error;
+  if (voicePaths.length) {
+    const removed = await admin.storage.from("voice-messages").remove(voicePaths);
+    if (removed.error) throw removed.error;
+  }
+  return { deletedMessages: deletedMessages.data?.length ?? 0, deletedVoiceFiles: voicePaths.length };
+}
+
+export function canLeaveChatRoom(membershipRole: string) {
+  return membershipRole !== "owner";
+}
+
+export function canDeleteChatRoom(roomOwnerId: string, callerId: string) {
+  return roomOwnerId === callerId;
+}
+
+export async function leaveChatRoom(openId: string, roomId: string) {
+  const authId = await getSupabaseAuthIdForOpenId(openId);
+  const admin = getSupabaseAdmin();
+  const membership = await admin.from("room_members").select("membership_role").eq("room_id", roomId).eq("user_id", authId).maybeSingle();
+  if (membership.error) throw membership.error;
+  if (!membership.data) throw new Error("You are not a member of this room");
+  if (!canLeaveChatRoom(membership.data.membership_role)) throw new Error("Room owners must delete the room instead of leaving it");
+  const result = await admin.from("room_members").delete().eq("room_id", roomId).eq("user_id", authId);
+  if (result.error) throw result.error;
+  return { roomId, left: true };
+}
+
+export async function deleteChatRoom(openId: string, roomId: string) {
+  const authId = await getSupabaseAuthIdForOpenId(openId);
+  const admin = getSupabaseAdmin();
+  const room = await admin.from("rooms").select("id, created_by").eq("id", roomId).maybeSingle();
+  if (room.error) throw room.error;
+  if (!room.data) throw new Error("Room not found");
+  if (!canDeleteChatRoom(room.data.created_by, authId)) throw new Error("Only the room owner can delete this room");
+  const voiceMessages = await admin.from("messages").select("voice_path").eq("room_id", roomId).not("voice_path", "is", null);
+  if (voiceMessages.error) throw voiceMessages.error;
+  const voicePaths = (voiceMessages.data ?? []).map(row => row.voice_path).filter((path): path is string => Boolean(path));
+  if (voicePaths.length) {
+    const removed = await admin.storage.from("voice-messages").remove(voicePaths);
+    if (removed.error) throw removed.error;
+  }
+  const result = await admin.from("rooms").delete().eq("id", roomId);
+  if (result.error) throw result.error;
+  return { roomId, deleted: true, deletedVoiceFiles: voicePaths.length };
+}
+
 export async function loginLocalAccount(username: string, password: string) {
   const normalized = username.trim().toLowerCase();
   const auth = await getSupabasePublicClient().auth.signInWithPassword({ email: localEmail(normalized), password });
