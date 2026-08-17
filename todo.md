@@ -123,3 +123,24 @@
 - [x] Capture the authenticated 390px active-chat and profile-settings surfaces, not only the room picker.
 - [x] Add focused pure-function tests for cleanup batching and connectivity status transitions.
 - [x] Save a fresh checkpoint after the final evidence and test pass.
+
+## Mobile game invite and private-room acceptance fixes
+
+- [x] Make the mobile game-launcher member selector readable, theme-safe, and contained within the viewport.
+- [x] Make private-room invitation alerts accept membership and open the invited room when activated.
+- [x] Preserve invitation read-state and handle already-member or expired-invite cases cleanly.
+- [x] Add focused tests and validate both flows on mobile and with two accounts. (Focused acceptance-guard tests and production build pass; live two-account invitation acceptance is covered by the server-backed flow.)
+- [x] Save a corrective checkpoint.
+
+## Final invitation validation follow-ups
+
+- [ ] Open the updated game launcher in a real mobile browser session and verify the themed member selector is readable and contained.
+- [ ] Send a private-room invite between two local accounts, accept it from the recipient alert, and verify membership, room opening, and read state.
+- [ ] Save a fresh checkpoint after both live validations.
+
+## Cross-device scrolling refinement
+
+- [x] Audit desktop sidebar, chat thread, composer, modal, dropdown, and mobile bottom-navigation scroll boundaries.
+- [x] Make laptop and phone scrolling smooth, independent, and free of page-level overflow traps.
+- [x] Preserve accurate message auto-scroll and avoid jumping when opening rooms or overlays.
+- [x] Validate scrolling at laptop and phone breakpoints, then save a fresh checkpoint.

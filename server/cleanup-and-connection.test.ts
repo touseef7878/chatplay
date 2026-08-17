@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cleanupBatchCount } from "./supabase";
-import { connectionBannerState } from "../client/src/lib/connection-utils";
+import { cleanupBatchCount, isValidRoomInvitation } from "./supabase";
+import { connectionBannerState, shouldStickToBottom } from "../client/src/lib/connection-utils";
 
 describe("batched cleanup", () => {
   it("calculates bounded cleanup batches", () => {
@@ -9,6 +9,23 @@ describe("batched cleanup", () => {
     expect(cleanupBatchCount(100)).toBe(1);
     expect(cleanupBatchCount(101)).toBe(2);
     expect(cleanupBatchCount(250, 50)).toBe(5);
+  });
+});
+
+describe("room invitation acceptance", () => {
+  it("accepts only a room invite addressed to the current recipient", () => {
+    expect(isValidRoomInvitation({ recipient_id: "guest", kind: "room_invite", room_id: "room-1" }, "guest")).toBe(true);
+    expect(isValidRoomInvitation({ recipient_id: "owner", kind: "room_invite", room_id: "room-1" }, "guest")).toBe(false);
+    expect(isValidRoomInvitation({ recipient_id: "guest", kind: "game_invite", room_id: "room-1" }, "guest")).toBe(false);
+    expect(isValidRoomInvitation(null, "guest")).toBe(false);
+  });
+});
+
+describe("chat scroll anchoring", () => {
+  it("sticks near the bottom but preserves intentional upward reading", () => {
+    expect(shouldStickToBottom(1000, 700, 200)).toBe(true);
+    expect(shouldStickToBottom(1000, 500, 200)).toBe(false);
+    expect(shouldStickToBottom(1000, 640, 200, 120)).toBe(false);
   });
 });
 

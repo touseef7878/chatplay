@@ -143,6 +143,30 @@ export function canDeleteChatRoom(roomOwnerId: string, callerId: string) {
   return roomOwnerId === callerId;
 }
 
+export function isValidRoomInvitation(notification: { recipient_id: string; kind: string; room_id: string | null } | null, recipientId: string) {
+  return Boolean(notification && notification.recipient_id === recipientId && notification.kind === "room_invite" && notification.room_id);
+}
+
+export async function acceptRoomInvitation(openId: string, notificationId: string) {
+  const authId = await getSupabaseAuthIdForOpenId(openId);
+  const admin = getSupabaseAdmin();
+  const notification = await admin.from("notifications").select("id, recipient_id, room_id, kind, read_at").eq("id", notificationId).maybeSingle();
+  if (notification.error) throw notification.error;
+  const invite = notification.data;
+  if (!invite || !isValidRoomInvitation(invite, authId)) {
+    throw new Error("This room invitation is invalid or no longer available");
+  }
+  const roomId = invite.room_id;
+  const room = await admin.from("rooms").select("id").eq("id", roomId).maybeSingle();
+  if (room.error) throw room.error;
+  if (!room.data) throw new Error("This room no longer exists");
+  const membership = await admin.from("room_members").upsert({ room_id: roomId, user_id: authId, membership_role: "member" }, { onConflict: "room_id,user_id" });
+  if (membership.error) throw membership.error;
+  const marked = await admin.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notificationId).eq("recipient_id", authId);
+  if (marked.error) throw marked.error;
+  return { roomId, accepted: true };
+}
+
 export async function leaveChatRoom(openId: string, roomId: string) {
   const authId = await getSupabaseAuthIdForOpenId(openId);
   const admin = getSupabaseAdmin();
