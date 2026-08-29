@@ -1,8 +1,9 @@
 {
-  "framework": "vite",
-  "buildCommand": "pnpm build:frontend",
+  "buildCommand": "vite build",
   "outputDirectory": "dist/public",
-  "installCommand": "pnpm install --frozen-lockfile",
-  "cleanUrls": true,
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "installCommand": "pnpm install",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
