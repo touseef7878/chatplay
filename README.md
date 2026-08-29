@@ -1,134 +1,272 @@
+<div align="center">
+
 # ChatPlay
 
-ChatPlay is a real-time group chat application with public and private rooms, voice notes, secure image attachments, presence, reactions, persistent invitation alerts, and multiplayer Tic-Tac-Toe, Word Scramble, and Trivia Sprint games. The frontend is React/Vite/Tailwind and is being prepared for Vercel; the fresh deployment boundary uses Supabase Auth, Postgres/RLS, Realtime, Storage, and lightweight Edge Functions.
+**Real-time group chat with games, voice, and presence — built on React, Vite, and Supabase**
 
-> **Authentication model:** ChatPlay intentionally does not expose Google, Manus, or social login. Users register and sign in with a unique username and password.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
+[![Supabase](https://img.shields.io/badge/Supabase-BaaS-3ecf8e?style=flat-square&logo=supabase&logoColor=white)](https://supabase.com/)
+[![Vite](https://img.shields.io/badge/Vite-7-646cff?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-06b6d4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-f0a500?style=flat-square)](LICENSE)
 
-## Repository structure
+</div>
 
-| Path | Purpose |
+---
+
+ChatPlay is a full-featured real-time chat application. Users join public or private rooms, exchange text, images, and voice notes, react to messages with emoji, and challenge each other to in-room multiplayer games — all backed by Supabase Postgres, Realtime, and Storage. The frontend is a React SPA deployed to Vercel.
+
+---
+
+## Features
+
+| Area | Details |
 | --- | --- |
-| `client/` | React application, page components, UI primitives, Supabase browser client, and global styles. |
-| `server/` | Legacy full-stack compatibility server and tests; it is not required by the fresh Vercel/Supabase frontend path after the migration is complete. |
-| `shared/` | Types and constants shared by the client and server. |
-| `supabase/migrations/` | Ordered PostgreSQL, RLS, Realtime, Auth, and Storage migrations. Apply these files in filename order. |
-| `drizzle/` | Template database schema and generated Drizzle metadata retained for compatibility with the server scaffold. ChatPlay feature data is defined in the Supabase migrations. |
-| `docs/` | Security and operational validation notes. |
-| `client/src/components/ui/` | Reusable Radix/shadcn-style UI primitives. |
-| `client/src/pages/ChatPlay.tsx` | Main authenticated ChatPlay workspace. |
+| **Auth** | Username and password — no third-party OAuth. Registration triggers an automatic profile via a Postgres function. |
+| **Rooms** | Create public or private rooms (up to 100 members). Join public rooms freely; private rooms require an invitation. |
+| **Messaging** | Optimistic text send, 120-message history, inline image attachments (PNG / JPEG / WebP / GIF, up to 10 MiB). |
+| **Voice notes** | Browser-mic recording (WebM, up to 60 s), uploaded to Supabase Storage, inline playback in chat. |
+| **Reactions** | Four quick emoji (🔥 😂 👏 💚) with live counts and per-user toggle. |
+| **Presence** | Real-time online list per room via Supabase Realtime presence. |
+| **Notifications** | Persistent in-app alerts for room invitations and game invites; delivered over a private Realtime channel. |
+| **Moderation** | Owner/admin/member roles. Owners can assign admin rights and remove members; moderated users receive a notification. |
+| **Multiplayer games** | **Tic-Tac-Toe** (turn-based), **Word Scramble** (race to unscramble), and **Trivia Sprint** (live leaderboard). |
+| **Developer panel** | Privileged users can list all accounts, view an audit log, and delete users through a protected Edge Function. |
+| **Data cleanup** | Users can bulk-delete their own messages, voice files, and images in bounded batches. |
+| **Themes** | Dark (default) and light — switchable at runtime. |
 
-Generated build output, dependency folders, local environment files, editor state, logs, and investigation request payloads are excluded from source control.
+---
+
+## Tech stack
+
+### Frontend
+
+| | |
+| --- | --- |
+| **React 19 + TypeScript** | Core UI framework |
+| **Vite 7** | Build tool and dev server |
+| **Tailwind CSS 4** | Utility-first styling |
+| **Radix UI + shadcn-style primitives** | Accessible, unstyled UI components in `client/src/components/ui/` |
+| **Framer Motion** | Animated sidebar and spring transitions |
+| **Wouter** | Lightweight client-side routing |
+| **Sonner** | Toast notifications |
+| **React Hook Form + Zod** | Form validation |
+| **Lucide React** | Icon set |
+
+### Backend (Supabase)
+
+| | |
+| --- | --- |
+| **Supabase Auth** | Session management; username stored in user metadata + `profiles` table |
+| **Supabase Postgres + RLS** | All application data behind row-level security policies |
+| **Supabase Realtime** | Private channel subscriptions for live messages, presence, notifications, and game state |
+| **Supabase Storage** | Buckets: `voice-messages`, `chat-images` (private, room-scoped), `avatars` |
+| **Edge Functions** | `chatplay-auth` (register / login) · `chatplay-admin` (developer user management + audit) |
+
+### Infrastructure
+
+| | |
+| --- | --- |
+| **Vercel** | Frontend hosting; SPA rewrites via `vercel.json` |
+| **pnpm 10** | Package manager |
+| **Vitest** | Unit test runner |
+| **Prettier** | Code formatter |
+
+---
+
+## Project structure
+
+```
+chatplay/
+├── client/                     # React SPA (Vite root)
+│   └── src/
+│       ├── pages/
+│       │   └── ChatPlay.tsx    # Entire authenticated workspace
+│       ├── components/
+│       │   └── ui/             # 53 Radix/shadcn UI primitives
+│       ├── _core/hooks/        # useSupabaseAuth — session management
+│       └── lib/                # Supabase clients, RPCs, game utils, media utils
+├── server/                     # Legacy Express/tRPC server (not required for Vercel)
+├── shared/                     # Types and constants shared by client and server
+├── supabase/
+│   ├── migrations/             # 14 ordered SQL files (schema, RLS, Realtime, Storage)
+│   └── functions/
+│       ├── chatplay-auth/      # Register + login Edge Function
+│       └── chatplay-admin/     # Developer user management + audit Edge Function
+├── drizzle/                    # Legacy Drizzle schema (scaffold compatibility only)
+├── docs/                       # Security and deployment notes
+├── vercel.json                 # Vercel deployment config
+└── package.json
+```
+
+---
 
 ## Prerequisites
 
-Use Node.js 20 or newer, pnpm 10 or newer, and a Supabase project. A local Supabase CLI is optional; the migrations can also be applied through the Supabase SQL Editor. Git, a current browser, and a PostgreSQL-compatible Supabase database connection string are required for a complete local server run.
+- **Node.js** 20 or newer
+- **pnpm** 10 or newer
+- A **Supabase** project (free tier is sufficient)
 
-## Clone and install
+---
+
+## Getting started
+
+### 1 — Clone and install
 
 ```bash
 git clone <YOUR_GITHUB_REPOSITORY_URL> chatplay
 cd chatplay
 pnpm install
-# Create .env from the Vercel/Supabase variable table below.
-# The fresh frontend path needs only VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY,
-# and optionally VITE_SUPABASE_OWNER_ID for developer-owner UI.
 ```
 
-For the fresh Vercel frontend, create `.env.local` with the two public Supabase values. Never put a service-role key, database password, JWT secret, or legacy server credential in Vercel browser variables. The legacy full-stack server variables remain documented only for compatibility runs.
+### 2 — Configure environment variables
 
-## Environment variables
+Create `.env.local` at the repository root:
 
-The browser receives only public `VITE_*` values. Supabase Edge Functions receive their own managed server secrets; never copy those into Vercel client variables. Legacy server-only variables are not needed by the fresh frontend deployment.
+```env
+VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-anon-key>
+```
 
-| Variable | Required | Used by |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | Yes | Browser and server Supabase clients. |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Yes | Browser Supabase client; use the publishable/anon key only. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Edge Function secret | Supabase-managed server-side authorization and administrative cleanup; never expose to Vercel client code. |
-| `SUPABASE_JWT_SECRET` | Recommended | Local Supabase/Auth bridge validation where required by the project configuration. |
-| `DATABASE_URL` | Legacy only | Required only for the compatibility Express/tRPC server, not the fresh Supabase-only frontend. |
-| `JWT_SECRET` | Legacy only | Required only for the compatibility Express/tRPC server. |
-| `PORT` | No | Server port; defaults to the platform-provided port. |
-| `NODE_ENV` | No | Set `development` for `pnpm dev` and `production` for `pnpm start`. |
-| `VITE_APP_TITLE` | No | Browser title and platform metadata. |
-| `VITE_APP_LOGO` | No | Optional application logo metadata. |
-| `BUILT_IN_FORGE_API_URL` | Only if using platform integrations | Server-side platform integration endpoint. |
-| `BUILT_IN_FORGE_API_KEY` | Only if using platform integrations | Server-side platform integration credential. |
-| `VITE_FRONTEND_FORGE_API_URL` | Only if using platform integrations | Browser-side platform integration endpoint. |
-| `VITE_FRONTEND_FORGE_API_KEY` | Only if using platform integrations | Browser-side platform integration credential. |
-| `VITE_APP_ID` | Only if using platform OAuth/integrations | Application identifier used by the scaffold. |
-| `OAUTH_SERVER_URL` | Only if using platform OAuth/integrations | OAuth server base URL retained by the scaffold. |
-| `VITE_SUPABASE_OWNER_ID` | No longer used | Developer access is controlled by the Supabase `profiles.is_developer` flag and the protected `chatplay-admin` Edge Function. |
+> **Never put `SUPABASE_SERVICE_ROLE_KEY` or any server secret in a Vercel browser variable.** Edge Functions manage their own secrets inside the Supabase dashboard.
 
-## Supabase setup
+### 3 — Apply database migrations
 
-Create a fresh Supabase project, copy its URL and publishable key into `.env.local`, and apply every SQL file in `supabase/migrations/` in lexical order, currently ending with `0012_fresh_developer_controls.sql`. The fresh migrations add username uniqueness, automatic profile creation from Supabase Auth metadata, secure room/invitation RPCs, ChatPlay RLS, Realtime authorization, avatar storage, and the private `chat-images` bucket. Existing legacy Drizzle usernames and passwords are intentionally not migrated.
-
-The image migration creates a **private** Storage bucket. Image objects are room-scoped and can be read only by authenticated room members. Uploaded images are validated in the client and constrained at the database/storage-policy layer to PNG, JPEG, WebP, or GIF files up to 10 MiB. Voice files use the existing voice-storage flow.
-
-After applying migrations, confirm that Supabase Realtime public channel access is disabled for the project. The rationale and manual verification sequence are documented in [`docs/realtime-security-validation.md`](docs/realtime-security-validation.md).
-
-## Run locally
-
-Start the compatibility development server with hot reload:
+Apply every SQL file in `supabase/migrations/` in lexical order (currently `0001` → `0012`) through the Supabase SQL Editor or the Supabase CLI:
 
 ```bash
+# List files to verify order before applying
+ls supabase/migrations/*.sql | sort
+```
+
+After applying migrations, disable public Realtime channel access in your Supabase project settings. See [`docs/realtime-security-validation.md`](docs/realtime-security-validation.md) for the exact steps.
+
+### 4 — Deploy Edge Functions
+
+Deploy both functions from `supabase/functions/` to your Supabase project:
+
+```bash
+supabase functions deploy chatplay-auth
+supabase functions deploy chatplay-admin
+```
+
+### 5 — Run locally
+
+```bash
+# Fresh Supabase/Vercel path (recommended)
+pnpm dev:frontend
+
+# Legacy Express + Vite compatibility server
 pnpm dev
 ```
 
-For the fresh Vercel/Supabase frontend, run `pnpm dev:frontend` or `pnpm vite --host 0.0.0.0`. Open the printed URL, register a new Supabase username-password account, and verify rooms, chat, voice, images, invitations, presence, games, and developer controls. The browser runtime no longer requires the Express/tRPC server; `pnpm dev` remains available only as a compatibility/local server command.
+Open the URL printed by Vite, register a username-password account, and verify rooms, chat, voice, images, games, and notifications.
 
-For a production-like local run:
+---
+
+## Environment variables
+
+### Required for the browser (Vercel + local)
+
+| Variable | Description |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase anon key (safe to expose to the browser) |
+
+### Edge Function secrets (Supabase dashboard only)
+
+| Variable | Description |
+| --- | --- |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side admin operations in `chatplay-admin` |
+| `SUPABASE_JWT_SECRET` | Auth bridge JWT validation |
+
+### Legacy server (not needed for the Vercel fresh path)
+
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | MySQL connection string for the legacy Express/Drizzle server |
+| `JWT_SECRET` | Legacy server JWT signing secret |
+| `PORT` | Server port; defaults to the platform-provided value |
+| `NODE_ENV` | `development` or `production` |
+
+---
+
+## Development commands
+
+| Command | Description |
+| --- | --- |
+| `pnpm dev:frontend` | Start the Vite dev server (recommended for Supabase-only path) |
+| `pnpm dev` | Start the legacy Express + Vite compatibility server |
+| `pnpm check` | TypeScript type-check without emitting files |
+| `pnpm test` | Run the Vitest suite |
+| `pnpm build:frontend` | Build the SPA into `dist/public` for Vercel |
+| `pnpm build` | Build the browser bundle and the bundled compatibility server |
+| `pnpm start` | Start the production bundle from `dist/` |
+| `pnpm format` | Format all tracked source files with Prettier |
+| `pnpm db:push` | Generate and apply Drizzle migrations (legacy schema only) |
+
+---
+
+## Deploying to Vercel
+
+The `vercel.json` at the repository root is already configured:
+
+- **Build command:** `pnpm build:frontend`
+- **Output directory:** `dist/public`
+- **Install command:** `pnpm install --frozen-lockfile`
+- **SPA rewrites:** all routes rewrite to `index.html`
+
+Add two environment variables in Vercel (Preview and Production):
+
+```
+VITE_SUPABASE_URL       → <your Supabase project URL>
+VITE_SUPABASE_PUBLISHABLE_KEY → <your Supabase anon key>
+```
+
+In **Supabase Dashboard → Authentication → URL Configuration**, add your Vercel production URL and `https://*.vercel.app` for preview deployments.
+
+For the complete deployment checklist, see [`docs/vercel-supabase-runbook.md`](docs/vercel-supabase-runbook.md).
+
+---
+
+## Pre-release checklist
+
+Before shipping any change, run:
 
 ```bash
 pnpm check
 pnpm test
+pnpm build:frontend
 pnpm build
-NODE_ENV=production pnpm start
 ```
 
-The bundled server serves the built client. Do not hardcode a production port; the server reads the hosting environment's `PORT` value when provided.
+For Supabase schema changes, apply the migration to a staging project and verify RLS behavior with at least two separate test accounts before promoting to production.
 
-## Development commands
-
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev` | Start the legacy Vite/Express compatibility server with watch mode. |
-| `pnpm check` | Run TypeScript validation without emitting files. |
-| `pnpm test` | Run the Vitest suite. |
-| `pnpm build:frontend` | Build the Vercel frontend into `dist/public`. |
-| `pnpm build` | Build the browser bundle and bundled compatibility server. |
-| `pnpm start` | Start the production bundle from `dist/`. |
-| `pnpm format` | Format tracked source files with Prettier. |
-| `pnpm db:push` | Generate and apply the template Drizzle migrations; use only when working on Drizzle-managed schema. |
-
-## Storage and assets
-
-Runtime user media is uploaded to Supabase Storage through the application and is not stored in the Git repository. The repository should contain only small static configuration files and source code. Do not place user images, voice recordings, secrets, generated build artifacts, or local Supabase deployment payloads under `client/public/` or commit them to GitHub.
-
-The temporary QA image used during development is not a product asset and is excluded from the repository. If a future product illustration, logo, or static image is needed, keep the original outside the source tree, upload it through the deployment/storage workflow, and reference the returned durable URL rather than committing large binaries.
-
-## Testing checklist
-
-Before pushing changes, run `pnpm check`, `pnpm test`, and `pnpm build`. For changes affecting Supabase, apply the corresponding migration to a disposable project or staging database, then verify RLS behavior with at least two local accounts. For media changes, verify upload, room-member-only access, persistence after reload, and cleanup on account or message deletion.
+---
 
 ## Security notes
 
-Never expose `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `SUPABASE_JWT_SECRET`, database credentials, or platform API keys in browser code, Vercel client variables, screenshots, issue reports, or Git history. The browser should use only the Supabase URL and publishable key. Developer authorization is enforced by Supabase profile data, RLS, and the Edge Function; it is never inferred from a client-side secret.
-Private room and image access is enforced by Supabase RLS/Storage policies; UI hiding is not an authorization boundary.
+- The browser only ever receives `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. All server-side secrets live exclusively in the Supabase Edge Function environment.
+- Authorization is enforced server-side by Postgres RLS policies and `SECURITY DEFINER` functions. UI-level hiding of features is not a security boundary.
+- Private room and image access is enforced by Supabase RLS/Storage policies regardless of client state.
+- Developer privileges are governed by the `profiles.is_developer` column validated inside the `chatplay-admin` Edge Function, not by any client-side secret.
+- Never commit `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `SUPABASE_JWT_SECRET`, or any database credential.
 
-## Vercel deployment
-
-Set the Vercel project root to the repository root. Use the `vercel.json` configuration, which runs `pnpm install --frozen-lockfile`, executes `pnpm build:frontend`, publishes `dist/public`, and rewrites SPA routes to `index.html`. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as Vercel environment variables for Preview and Production. Configure Supabase Auth redirect URLs for the Vercel production domain and local development URL. Do not add `SUPABASE_SERVICE_ROLE_KEY` to Vercel client environment variables.
-
-The migration is complete for independent frontend deployment: authentication, room/game RPCs, Realtime, Storage, cleanup, moderation, and developer deletion are handled by Supabase, with `chatplay-auth` and `chatplay-admin` deployed as Edge Functions. Legacy server files remain only as compatibility source and are not required by Vercel.
-
-Supabase Auth URL Configuration must include the Vercel production URL, its preview URL pattern if previews are used, and the local development URL. Keep Edge Function secrets such as `SUPABASE_SERVICE_ROLE_KEY` inside Supabase only. The fresh account reset intentionally does not migrate legacy Drizzle users; create new username-password accounts in the Supabase project.
+---
 
 ## References
 
-- [Supabase database migrations](https://supabase.com/docs/guides/database/overview)
+- [Supabase Database Migrations](https://supabase.com/docs/guides/database/overview)
 - [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
-- [Supabase Storage access control](https://supabase.com/docs/guides/storage/security/access-control)
-- [Supabase Realtime authorization](https://supabase.com/docs/guides/realtime/authorization)
-- [pnpm documentation](https://pnpm.io/)
+- [Supabase Storage Access Control](https://supabase.com/docs/guides/storage/security/access-control)
+- [Supabase Realtime Authorization](https://supabase.com/docs/guides/realtime/authorization)
+- [Supabase Edge Functions](https://supabase.com/docs/guides/functions)
+- [Vercel + Vite Deployment](https://vercel.com/docs/frameworks/frontend/vite)
+- [pnpm Documentation](https://pnpm.io/)
+
+---
+
+<div align="center">
+MIT License · Built with React, Vite, and Supabase
+</div>
